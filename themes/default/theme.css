@@ -1,0 +1,20 @@
+:root {
+    --bg-main: #0B0D10;
+    --bg-surface: #12151C;
+    --bg-surface-glass: rgba(18, 21, 28, 0.75);
+    --border-color: #1E2330;
+    --text-primary: #E2E8F0;
+    --text-muted: #64748B;
+    --accent-green: #10B981;
+    --accent-blue: #3B82F6;
+    --accent-amber: #F59E0B;
+    --accent-red: #EF4444;
+    
+    --radius-panel: 10px;
+    --radius-control: 6px;
+    --radius-badge: 4px;
+    
+    --body-bg-image: linear-gradient(rgba(30, 35, 48, 0.3) 1px, transparent 1px),
+                     linear-gradient(90deg, rgba(30, 35, 48, 0.3) 1px, transparent 1px);
+    --body-bg-size: 32px 32px;
+}

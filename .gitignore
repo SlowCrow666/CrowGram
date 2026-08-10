@@ -1,0 +1,41 @@
+# Python / Virtual Environment
+
+**pycache**/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+
+# Telegram & Session Secrets
+
+*.session
+*.session-journal
+*.telethon
+
+# Database & Storage Folders
+
+data/
+temp/
+downloads/
+*.db
+*.sqlite3
+
+# Local Configuration
+
+.env
+config.json
+
+# IDEs & System Files
+
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Builder & Megacode Local Utilities
+builder.py
+BUILDER.bat
+megacode.txt
+make_docs.py

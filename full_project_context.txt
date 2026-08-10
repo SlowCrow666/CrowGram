@@ -1,0 +1,2765 @@
+=== СТРУКТУРА ПРОЕКТА ===
+./
+    app.py
+    builder.py
+    full_project_context.txt
+    megacode.txt
+    pack_project.py
+    README_RU.md
+    requirements.txt
+    data/
+    downloads/
+    locales/
+    plugins/
+    src/
+        config.py
+        core/
+            base_plugin.py
+            db.py
+            telegram_client.py
+        locales/
+        web/
+            index.html
+            static/
+                css/
+                    style.css
+                js/
+                plugins/
+                themes/
+    temp/
+    themes/
+        default/
+            theme.css
+        macos_light/
+            theme.css
+        telegram_dark/
+            theme.css
+
+==================================================
+
+=== СОДЕРЖИМОЕ ФАЙЛОВ ===
+
+
+--- FILE START: .\app.py ---
+import socket
+import mimetypes
+import hashlib
+import traceback
+import io
+import zipfile
+import webbrowser
+import threading
+import re
+import asyncio
+import uuid
+import time
+import urllib.request
+import os
+import shutil
+import subprocess
+from typing import Optional
+from pathlib import Path
+from urllib.parse import quote
+from contextlib import asynccontextmanager
+import uvicorn
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Request, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+
+import sys
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
+from src.config import WEB_DIR, TEMP_DIR, LOCALES_DIR, DEFAULT_HOST, DEFAULT_PORT, CHUNK_SIZE_BYTES
+from src.core.db import (
+    init_db, set_config, get_config, get_all_config, add_file_record, 
+    add_folder_record, add_chunk_record, list_files_db, list_trash_db, get_file_chunks, get_file_info,
+    move_to_trash_db, restore_from_trash_db, delete_file_permanently_db, empty_trash_db,
+    get_drives, add_drive, update_drive_db, delete_drive_db, get_drive_info, toggle_favorite_db, move_item_db, get_storage_stats,
+    export_db_to_json, import_db_from_json
+)
+from src.core.telegram_client import tg_manager
+
+mimetypes.add_type('video/mp4', '.mp4')
+mimetypes.add_type('video/webm', '.webm')
+mimetypes.add_type('video/x-matroska', '.mkv')
+mimetypes.add_type('audio/mpeg', '.mp3')
+mimetypes.add_type('audio/flac', '.flac')
+mimetypes.add_type('audio/ogg', '.ogg')
+
+BASE_DIR = Path(__file__).resolve().parent
+PLUGINS_DIR = BASE_DIR / "plugins"
+THEMES_DIR = BASE_DIR / "themes"
+
+PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
+THEMES_DIR.mkdir(parents=True, exist_ok=True)
+
+chunk_cache = {}
+stream_semaphore = asyncio.Semaphore(3)
+
+def check_ffmpeg_available() -> bool:
+    return shutil.which("ffmpeg") is not None or (BASE_DIR / "ffmpeg.exe").exists()
+
+def find_free_port(start_port: int) -> int:
+    port = start_port
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex((DEFAULT_HOST, port)) != 0:
+                return port
+        port += 1
+
+def open_browser(port: int):
+    webbrowser.open(f"http://{DEFAULT_HOST}:{port}")
+
+def validate_chat_id(chat_id: str) -> bool:
+    if not chat_id: return False
+    chat_id = chat_id.strip()
+    if chat_id.lower() == "me": return True
+    if re.match(r"^-?\d+$", chat_id): return True
+    if re.match(r"^@?[a-zA-Z0-9_]+$", chat_id): return True
+    return False
+
+def parse_peer_id(chat_id: str):
+    cid_str = str(chat_id).strip()
+    if cid_str.lower() == "me":
+        return "me"
+    if cid_str.startswith("-100") or cid_str.startswith("-"):
+        return int(cid_str)
+    if cid_str.isdigit():
+        return int(f"-100{cid_str}")
+    return cid_str
+
+async def get_cached_chunk_data(msg_id: int, chat_target):
+    cache_key = f"{chat_target}_{msg_id}"
+    if cache_key in chunk_cache:
+        return chunk_cache[cache_key]
+        
+    async with stream_semaphore:
+        buffer = bytearray()
+        async for chunk_bytes in tg_manager.download_chunk_stream(msg_id, chat_target):
+            buffer.extend(chunk_bytes)
+        
+        if len(chunk_cache) > 30:
+            first_key = next(iter(chunk_cache))
+            del chunk_cache[first_key]
+            
+        data = bytes(buffer)
+        chunk_cache[cache_key] = data
+        return data
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    for temp_file in TEMP_DIR.glob("*.tmp"):
+        try: temp_file.unlink()
+        except OSError: pass
+
+    async def init_tg_background():
+        try:
+            await tg_manager.init_client()
+            if tg_manager.app and tg_manager.app.is_connected:
+                async for _ in tg_manager.app.get_dialogs(limit=100):
+                    pass
+        except Exception as e:
+            print(f"[INFO] Ошибка автопрогрева Telegram: {e}")
+            
+    asyncio.create_task(init_tg_background())
+        
+    yield
+    
+    if tg_manager.app and tg_manager.app.is_connected:
+        await tg_manager.app.stop()
+
+app = FastAPI(title="CrowGram Cloud Storage", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
+app.mount("/locales", StaticFiles(directory=LOCALES_DIR), name="locales")
+
+app.mount("/plugins", StaticFiles(directory=PLUGINS_DIR), name="plugins")
+app.mount("/themes", StaticFiles(directory=THEMES_DIR), name="themes")
+
+upload_tasks = {}
+
+async def push_sync_background():
+    if tg_manager.is_authorized():
+        for _ in range(5):
+            try:
+                data = export_db_to_json()
+                await tg_manager.push_sync(data)
+                break
+            except Exception as e:
+                await asyncio.sleep(0.5)
+
+@app.post("/api/sync/push")
+async def api_sync_push():
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.post("/api/sync/pull")
+async def api_sync_pull():
+    data = await tg_manager.pull_sync()
+    if data:
+        try:
+            import_db_from_json(data)
+            return {"status": "success", "message": "Синхронизировано"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ошибка импорта базы данных: {str(e)}")
+    return {"status": "error", "message": "Файл синхронизации не найден"}
+
+@app.get("/")
+async def root(): 
+    return FileResponse(WEB_DIR / "index.html")
+
+@app.get("/api/plugins")
+async def get_plugins():
+    if not PLUGINS_DIR.exists():
+        return JSONResponse(content=[])
+    plugins = [f.name for f in PLUGINS_DIR.glob("*.js")]
+    return JSONResponse(content=plugins)
+
+@app.get("/api/config")
+async def api_get_config():
+    cfg = get_all_config()
+    cfg["is_authorized"] = tg_manager.is_authorized()
+    cfg["has_ffmpeg"] = check_ffmpeg_available()
+    return JSONResponse(content=cfg)
+
+@app.post("/api/config")
+async def api_set_config(
+    api_id: str = Form(...), 
+    api_hash: str = Form(...), 
+    chunk_size: Optional[str] = Form(None),
+    max_concurrent_uploads: Optional[str] = Form(None)
+):
+    set_config("api_id", api_id.strip())
+    set_config("api_hash", api_hash.strip())
+    if chunk_size: set_config("chunk_size", chunk_size.strip())
+    if max_concurrent_uploads: set_config("max_concurrent_uploads", max_concurrent_uploads.strip())
+    await tg_manager.init_client()
+    return {"status": "success"}
+
+@app.post("/api/auth/send-code")
+async def api_send_code(phone: str = Form(...)):
+    try:
+        await tg_manager.send_code(phone.strip())
+        return {"status": "code_sent"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/auth/sign-in")
+async def api_sign_in(code: str = Form(...)):
+    try:
+        await tg_manager.sign_in(tg_manager.phone, code.strip())
+        return {"status": "success"}
+    except Exception as e:
+        if "SESSION_PASSWORD_NEEDED" in str(e) or "PasswordNeeded" in str(type(e)):
+            return {"status": "password_required"}
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/auth/password")
+async def api_check_password(password: str = Form(...)):
+    try:
+        await tg_manager.check_password(password)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/drives")
+async def api_get_drives():
+    return JSONResponse(content=get_drives())
+
+@app.post("/api/drives")
+async def api_create_drive(
+    letter: str = Form(...), 
+    label: str = Form(...), 
+    action: str = Form(...), 
+    title: Optional[str] = Form(None), 
+    tg_chat_id: Optional[str] = Form(None),
+    icon: Optional[str] = Form("💽")
+):
+    if action == "create_new":
+        if not title: raise HTTPException(status_code=400, detail="Нужно название канала")
+        new_chat_id = await tg_manager.create_new_channel(title)
+        if not new_chat_id: raise HTTPException(status_code=500, detail="Ошибка создания канала")
+        add_drive(letter, label, new_chat_id, icon=icon)
+    else:
+        if not tg_chat_id or not validate_chat_id(tg_chat_id): 
+            raise HTTPException(status_code=400, detail="Неверный формат ID канала или канал не выбран")
+        add_drive(letter, label, tg_chat_id.strip(), icon=icon)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.put("/api/drives/{drive_id}")
+async def api_update_drive(
+    drive_id: int, 
+    letter: str = Form(...), 
+    label: str = Form(...),
+    icon: Optional[str] = Form("💽")
+):
+    update_drive_db(drive_id, letter, label, icon=icon)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.delete("/api/drives/{drive_id}")
+async def api_delete_drive(drive_id: int):
+    delete_drive_db(drive_id)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.get("/api/tg/channels")
+async def api_get_channels():
+    try:
+        if not tg_manager.is_authorized():
+            return JSONResponse(status_code=400, content={"detail": "Telegram еще не подключен"})
+        channels = await tg_manager.get_admin_channels()
+        return JSONResponse(content=channels)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+
+@app.get("/api/stats")
+async def api_stats():
+    stats = get_storage_stats()
+    items = list_files_db(1)
+    files_cnt = sum(1 for i in items if not i.get("is_folder") and not i.get("in_trash"))
+    folders_cnt = sum(1 for i in items if i.get("is_folder") and not i.get("in_trash"))
+    return JSONResponse(content={
+        "total_size": stats["total_size"],
+        "files_count": files_cnt,
+        "folders_count": folders_cnt
+    })
+
+@app.get("/api/files")
+async def list_files(drive_id: int = Query(1)):
+    return JSONResponse(content=list_files_db(drive_id))
+
+@app.get("/api/trash/files")
+async def list_trash_files():
+    return JSONResponse(content=list_trash_db())
+
+@app.post("/api/folders")
+async def create_folder(name: str = Form(...), parent_id: Optional[str] = Form(0), drive_id: int = Form(1)):
+    p_id = int(parent_id) if parent_id and str(parent_id).isdigit() else 0
+    folder_id = add_folder_record(name.strip(), p_id, drive_id)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success", "id": folder_id}
+
+@app.post("/api/upload")
+async def upload_file(
+    file: UploadFile = File(...), 
+    parent_id: Optional[str] = Form(0), 
+    drive_id: int = Form(1), 
+    thumbnail: Optional[str] = Form("")
+):
+    if not tg_manager.is_authorized(): 
+        raise HTTPException(status_code=401, detail="Не авторизован")
+        
+    drive = get_drive_info(drive_id)
+    if not drive: raise HTTPException(status_code=400, detail="Диск не найден")
+    
+    p_id = int(parent_id) if parent_id and str(parent_id).isdigit() else 0
+    thumb = thumbnail if thumbnail and thumbnail != "null" else ""
+    
+    task_id = str(uuid.uuid4())
+    temp_path = TEMP_DIR / f"full_temp_{task_id}.tmp"
+    
+    with open(temp_path, "wb") as f:
+        while True:
+            content = await file.read(1024 * 1024 * 5)
+            if not content: break
+            f.write(content)
+            
+    file_size = temp_path.stat().st_size
+    chunk_size_setting = get_config("chunk_size")
+    chunk_size = int(chunk_size_setting) if chunk_size_setting else CHUNK_SIZE_BYTES
+    
+    upload_tasks[task_id] = {
+        "status": "processing",
+        "completed_bytes": 0,
+        "current_chunk_bytes": 0,
+        "total_size": file_size,
+        "start_time": time.time(),
+        "is_paused": False,
+        "is_cancelled": False
+    }
+    
+    async def background_upload():
+        try:
+            chunks_data_to_save = []
+            completed_bytes = 0
+            chat_target = parse_peer_id(drive["tg_chat_id"])
+            with open(temp_path, "rb") as f:
+                chunk_index = 0
+                while True:
+                    if upload_tasks[task_id]["is_cancelled"]:
+                        upload_tasks[task_id]["status"] = "cancelled"
+                        return
+
+                    while upload_tasks[task_id]["is_paused"]:
+                        await asyncio.sleep(0.5)
+                        if upload_tasks[task_id]["is_cancelled"]:
+                            upload_tasks[task_id]["status"] = "cancelled"
+                            return
+
+                    chunk_data = f.read(chunk_size)
+                    if not chunk_data: break
+                    
+                    chunk_file_path = TEMP_DIR / f"temp_{task_id}_{chunk_index}.tmp"
+                    sha256 = hashlib.sha256(chunk_data).hexdigest()
+                    
+                    with open(chunk_file_path, "wb") as cf: 
+                        cf.write(chunk_data)
+                        
+                    async def progress_tracker(current, total):
+                        upload_tasks[task_id]["current_chunk_bytes"] = current
+                        
+                    msg_id = await tg_manager.upload_chunk(
+                        chunk_file_path, 
+                        chat_target,
+                        progress_callback=progress_tracker
+                    )
+                    
+                    chunks_data_to_save.append({
+                        "index": chunk_index,
+                        "msg_id": msg_id,
+                        "size": len(chunk_data),
+                        "sha256": sha256
+                    })
+                    
+                    if chunk_file_path.exists(): 
+                        chunk_file_path.unlink()
+                    
+                    completed_bytes += len(chunk_data)
+                    upload_tasks[task_id]["completed_bytes"] = completed_bytes
+                    upload_tasks[task_id]["current_chunk_bytes"] = 0
+                    chunk_index += 1
+            
+            file_id = add_file_record(file.filename, file_size, p_id, thumb, drive_id)
+            for c in chunks_data_to_save:
+                add_chunk_record(file_id, c["index"], c["msg_id"], c["size"], c["sha256"])
+                
+            upload_tasks[task_id]["status"] = "done"
+            asyncio.create_task(push_sync_background())
+        except Exception as e: 
+            traceback.print_exc()
+            upload_tasks[task_id]["status"] = "error"
+            upload_tasks[task_id]["error"] = str(e)
+        finally:
+            if temp_path.exists(): 
+                temp_path.unlink()
+
+    asyncio.create_task(background_upload())
+    return {"status": "success", "task_id": task_id}
+
+@app.post("/api/upload/cancel/{task_id}")
+async def cancel_upload(task_id: str):
+    if task_id in upload_tasks:
+        upload_tasks[task_id]["is_cancelled"] = True
+        upload_tasks[task_id]["status"] = "cancelled"
+    return {"status": "success"}
+
+# ПОЛНОСТЬЮ ИСПРАВЛЕННЫЙ ЭНДПОИНТ СКАЧИВАНИЯ С ПОДДЕРЖКОЙ КИРИЛЛИЦЫ И СПЕЦСИМВОЛОВ
+@app.get("/api/download/{file_id}")
+async def download_file(file_id: int):
+    file_info = get_file_info(file_id)
+    if not file_info or file_info["is_folder"]:
+        raise HTTPException(status_code=404, detail="Файл не найден")
+        
+    drive = get_drive_info(file_info["drive_id"])
+    if not drive: raise HTTPException(status_code=400, detail="Диск не найден")
+    
+    file_size = file_info["size"]
+
+    if file_size == 0: return Response(content=b"", media_type="application/octet-stream")
+
+    chunks = get_file_chunks(file_id)
+    chat_target = parse_peer_id(drive["tg_chat_id"])
+    
+    async def full_streamer():
+        for chunk_info in chunks:
+            chunk_data = await get_cached_chunk_data(chunk_info["message_id"], chat_target)
+            yield chunk_data
+                
+    # Вычищаем недопустимые символы пути Windows (\, /, :, *, ?, ", <, >, |)
+    raw_name = re.sub(r'[\\/*?:"<>|]', '_', file_info["name"])
+    
+    # 1. Безопасное имя ASCII без кавычек и кириллицы для старых браузеров
+    ascii_fallback = raw_name.encode('ascii', 'ignore').decode('ascii').strip() or "file"
+    
+    # 2. Полноценное UTF-8 имя для современных браузеров (Chrome, Edge, Firefox)
+    encoded_utf8_name = quote(raw_name)
+    
+    headers = {
+        "Content-Length": str(file_size),
+        "Content-Disposition": f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded_utf8_name}"
+    }
+    return StreamingResponse(full_streamer(), status_code=200, headers=headers, media_type="application/octet-stream")
+
+@app.get("/api/stream/{file_id}")
+async def stream_file(file_id: int, request: Request):
+    file_info = get_file_info(file_id)
+    if not file_info or file_info["is_folder"]:
+        raise HTTPException(status_code=404, detail="Файл не найден")
+        
+    drive = get_drive_info(file_info["drive_id"])
+    if not drive: raise HTTPException(status_code=400, detail="Диск не найден")
+        
+    file_size = file_info["size"]
+    mime_type, _ = mimetypes.guess_type(file_info["name"])
+    media_type = mime_type or "video/mp4"
+
+    if file_size == 0: return Response(content=b"", media_type=media_type)
+
+    chunks = get_file_chunks(file_id)
+    chat_target = parse_peer_id(drive["tg_chat_id"])
+    
+    range_header = request.headers.get("Range")
+    start = 0
+    end = file_size - 1
+    
+    if range_header:
+        match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+        if match:
+            start = int(match.group(1))
+            if match.group(2):
+                end = int(match.group(2))
+
+    headers = {
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(end - start + 1),
+        "Content-Type": media_type,
+    }
+    status_code = 206 if range_header else 200
+
+    async def range_streamer():
+        current_pos = 0
+        for chunk_info in chunks:
+            chunk_size = chunk_info.get("size") or chunk_info.get("chunk_size")
+            if chunk_size is None:
+                chunk_size_setting = get_config("chunk_size")
+                chunk_size = int(chunk_size_setting) if chunk_size_setting else CHUNK_SIZE_BYTES
+            
+            if current_pos + chunk_size <= start:
+                current_pos += chunk_size
+                continue
+                
+            if current_pos > end:
+                break
+
+            data = await get_cached_chunk_data(chunk_info["message_id"], chat_target)
+            data_len = len(data)
+            data_start = current_pos
+            data_end = current_pos + data_len - 1
+
+            yield_start = max(data_start, start)
+            yield_end = min(data_end, end)
+
+            if yield_start <= yield_end:
+                slice_start = yield_start - data_start
+                slice_end = yield_end - data_start + 1
+                yield data[slice_start:slice_end]
+
+            current_pos += data_len
+            if current_pos > end:
+                break
+
+    return StreamingResponse(range_streamer(), status_code=status_code, headers=headers, media_type=media_type)
+
+@app.get("/api/transcode/{file_id}")
+async def transcode_file(file_id: int):
+    if not check_ffmpeg_available():
+        raise HTTPException(status_code=501, detail="FFmpeg не найден на сервере")
+
+    file_info = get_file_info(file_id)
+    if not file_info or file_info["is_folder"]:
+        raise HTTPException(status_code=404, detail="Файл не найден")
+        
+    drive = get_drive_info(file_info["drive_id"])
+    if not drive: raise HTTPException(status_code=400, detail="Диск не найден")
+    
+    chunks = get_file_chunks(file_id)
+    chat_target = parse_peer_id(drive["tg_chat_id"])
+
+    ffmpeg_bin = "ffmpeg" if shutil.which("ffmpeg") else str(BASE_DIR / "ffmpeg.exe")
+
+    ffmpeg_cmd = [
+        ffmpeg_bin,
+        "-i", "pipe:0",
+        "-vcodec", "libx264",
+        "-preset", "ultrafast",
+        "-tune", "zerolatency",
+        "-acodec", "aac",
+        "-f", "mp4",
+        "-movflags", "frag_keyframe+empty_moov",
+        "pipe:1"
+    ]
+
+    async def transcode_streamer():
+        try:
+            process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL
+            )
+
+            async def feed_input():
+                try:
+                    for chunk_info in chunks:
+                        chunk_bytes = await get_cached_chunk_data(chunk_info["message_id"], chat_target)
+                        process.stdin.write(chunk_bytes)
+                        process.stdin.flush()
+                except Exception:
+                    pass
+                finally:
+                    process.stdin.close()
+
+            asyncio.create_task(feed_input())
+
+            while True:
+                data = await asyncio.to_thread(process.stdout.read, 65536)
+                if not data:
+                    break
+                yield data
+
+            process.wait()
+        except Exception as e:
+            print(f"[ERROR] Ошибка FFmpeg транскодирования: {e}")
+
+    return StreamingResponse(transcode_streamer(), media_type="video/mp4")
+
+@app.get("/api/download-zip")
+async def download_zip(ids: str = Query(...)):
+    file_ids = [int(i) for i in ids.split(",") if i.isdigit()]
+    zip_buffer = io.BytesIO()
+    
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for fid in file_ids:
+            file_info = get_file_info(fid)
+            if not file_info or file_info["is_folder"]: continue
+            drive = get_drive_info(file_info["drive_id"])
+            if not drive: continue
+            
+            chat_target = parse_peer_id(drive["tg_chat_id"])
+            chunks = get_file_chunks(fid)
+            file_data = bytearray()
+            for chunk_info in chunks:
+                chunk_bytes = await get_cached_chunk_data(chunk_info["message_id"], chat_target)
+                file_data.extend(chunk_bytes)
+            zip_file.writestr(file_info["name"], bytes(file_data))
+            
+    zip_buffer.seek(0)
+    headers = {"Content-Disposition": "attachment; filename=archive.zip"}
+    return StreamingResponse(zip_buffer, media_type="application/zip", headers=headers)
+
+@app.post("/api/files/{file_id}/trash")
+async def move_to_trash(file_id: int):
+    move_to_trash_db(file_id)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.post("/api/files/{file_id}/restore")
+async def restore_from_trash(file_id: int):
+    restore_from_trash_db(file_id)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.post("/api/files/{file_id}/favorite")
+async def toggle_favorite(file_id: int, state: int = Form(...)):
+    toggle_favorite_db(file_id, state)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.post("/api/files/{file_id}/move")
+async def move_item(
+    file_id: int, 
+    new_parent_id: int = Form(...), 
+    new_drive_id: Optional[int] = Form(None)
+):
+    move_item_db(file_id, new_parent_id, new_drive_id)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.post("/api/files/batch-trash")
+async def batch_trash(ids: list[int] = Form(...)):
+    for fid in ids:
+        move_to_trash_db(fid)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.delete("/api/files/{file_id}/permanent")
+async def delete_permanently(file_id: int):
+    result = delete_file_permanently_db(file_id)
+    if result and result["msg_ids"] and result["chat_id"]: 
+        chat_target = parse_peer_id(result["chat_id"])
+        await tg_manager.delete_messages(result["msg_ids"], chat_target)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+@app.delete("/api/trash/empty")
+async def empty_trash():
+    tasks = empty_trash_db()
+    for chat_id, msg_ids in tasks.items():
+        if msg_ids: 
+            chat_target = parse_peer_id(chat_id)
+            await tg_manager.delete_messages(msg_ids, chat_target)
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
+if __name__ == "__main__":
+    port = find_free_port(DEFAULT_PORT)
+    threading.Timer(1.2, open_browser, args=[port]).start()
+    uvicorn.run("app:app", host=DEFAULT_HOST, port=port, reload=False)
+--- FILE END: .\app.py ---
+
+--- FILE START: .\builder.py ---
+import os
+import re
+from pathlib import Path
+
+def build_project():
+    megacode_file = Path("megacode.txt")
+    if not megacode_file.exists():
+        print("[ERROR] Файл megacode.txt не найден в текущей директории!")
+        return
+
+    content = megacode_file.read_text(encoding="utf-8")
+    
+    # Шаблон для поиска файлов вида: === FILE: path/to/file === ... === END FILE ===
+    pattern = r"=== FILE:\s*(.*?)\s*===\n(.* governance?)\n=== END FILE ==="
+    # Используем более надежный регулярный поиск блоков
+    pattern = r"=== FILE:\s*(.*?)\s*===\n(.*?)=== END FILE ==="
+    matches = re.findall(pattern, content, re.DOTALL)
+
+    if not matches:
+        print("[ERROR] Не удалось распарсить метки файлов в megacode.txt!")
+        return
+
+    print("[INFO] Начинаем распаковку и сборку структуры проекта...\n")
+
+    for file_path_str, file_content in matches:
+        file_path = Path(file_path_str.strip())
+        
+        # Создаем необходимые директории
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Записываем содержимое файла
+        file_path.write_text(file_content.lstrip("\n"), encoding="utf-8")
+        print(f"  [+] Создан: {file_path}")
+
+    print("\n[SUCCESS] Проект успешно собран! Структура готова.")
+
+if __name__ == "__main__":
+    build_project()
+--- FILE END: .\builder.py ---
+
+--- FILE START: .\megacode.txt ---
+=== FILE: src/web/static/js/main.js ===
+let currentLang = 'ru';
+let isAuthorized = false;
+let activeDropdown = null;
+let selectedFileIds = new Set();
+let maxConcurrentUploads = 3;
+
+let clipboardItems = [];
+
+let allItems = [];
+let currentFolderId = 0;
+let currentDriveId = 1;
+let isTrashView = false;
+let currentViewMode = 'table'; 
+
+let uploadQueue = [];
+
+// -------------------------------------------------------------
+// ЯДРО СИСТЕМЫ ПЛАГИНОВ (CrowAPI)
+// -------------------------------------------------------------
+window.CrowAPI = {
+    plugins: {},
+    hooks: {
+        onFileClick: [],
+        onAppReady: []
+    },
+    
+    registerPlugin: function(name, plugin) {
+        this.plugins[name] = plugin;
+        try {
+            if (plugin.init) plugin.init(this);
+            console.log('[CrowGram Plugin System] Плагин успешно загружен:', name);
+        } catch (e) {
+            console.error('[CrowGram Plugin System] Ошибка инициализации плагина:', name, e);
+        }
+    },
+    
+    addHook: function(hookName, callback) {
+        if (this.hooks[hookName]) {
+            this.hooks[hookName].push(callback);
+        }
+    },
+    
+    emit: function(hookName, ...args) {
+        if (this.hooks[hookName]) {
+            let handled = false;
+            for (let cb of this.hooks[hookName]) {
+                try {
+                    if (cb(...args) === true) handled = true;
+                } catch (e) {
+                    console.error('[CrowGram Plugin System] Ошибка хука:', hookName, e);
+                }
+            }
+            return handled;
+        }
+        return false;
+    },
+    
+    readFile: async function(fileId) {
+        const res = await fetch('/api/download/' + fileId);
+        if (!res.ok) throw new Error('Ошибка чтения файла');
+        return await res.text();
+    },
+
+    saveFile: async function(fileId, fileName, textContent) {
+        const res = await fetch('/api/files/' + fileId + '/save', {
+            method: 'POST',
+            body: textContent
+        });
+
+        if (!res.ok) throw new Error('Ошибка перезаписи файла');
+        const data = await res.json();
+
+        if (window.loadFiles) await window.loadFiles();
+        return data.new_id || fileId;
+    },
+
+    ui: {
+        addBottomBar: function(id, html) {
+            let mounts = document.getElementById('plugin-mounts');
+            if (!mounts) {
+                mounts = document.createElement('div');
+                mounts.id = 'plugin-mounts';
+                document.body.appendChild(mounts);
+            }
+            let bar = document.createElement('div');
+            bar.id = id;
+            bar.className = 'plugin-bottom-bar';
+            bar.innerHTML = html;
+            mounts.appendChild(bar);
+            return bar;
+        }
+    }
+};
+
+async function loadPlugins() {
+    try {
+        const res = await fetch('/api/plugins?_t=' + Date.now());
+        if (res.ok) {
+            const plugins = await res.json();
+            for (let p of plugins) {
+                let script = document.createElement('script');
+                script.src = '/plugins/' + p + '?_t=' + Date.now();
+                document.body.appendChild(script);
+            }
+        }
+    } catch (e) {
+        console.error("Ошибка при загрузке плагинов:", e);
+    }
+}
+
+window.handleFileClick = function(id, name) {
+    const ext = name.split('.').pop().toLowerCase();
+    const isIntercepted = window.CrowAPI.emit('onFileClick', id, name, ext);
+    if (!isIntercepted) {
+        openPreview(id, name);
+    }
+};
+
+window.downloadFileDirect = function(fileId) {
+    if (activeDropdown) {
+        activeDropdown.style.display = 'none';
+        activeDropdown = null;
+    }
+    window.location.href = '/api/download/' + fileId;
+};
+
+window.toggleDropdown = function(event, fileId) {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+    const dropdown = document.getElementById('dropdown-' + fileId);
+    if (activeDropdown && activeDropdown !== dropdown) {
+        activeDropdown.style.display = 'none';
+    }
+    if (dropdown) {
+        if (dropdown.style.display === 'none' || !dropdown.style.display) { 
+            dropdown.style.display = 'flex'; 
+            activeDropdown = dropdown; 
+        } else { 
+            dropdown.style.display = 'none'; 
+            activeDropdown = null; 
+        }
+    }
+};
+
+document.addEventListener('click', function(e) {
+    if (activeDropdown && !activeDropdown.contains(e.target)) {
+        activeDropdown.style.display = 'none';
+        activeDropdown = null;
+    }
+});
+
+function changeViewMode(mode) {
+    currentViewMode = mode;
+    document.querySelectorAll('.view-btn').forEach(function(btn) {
+        if (btn.getAttribute('data-mode') === mode) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    renderView();
+}
+
+document.querySelectorAll('.view-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+        const mode = btn.getAttribute('data-mode');
+        if (mode) changeViewMode(mode);
+    });
+});
+
+async function loadDrives() {
+    try {
+        const res = await fetch('/api/drives?_t=' + Date.now());
+        if (!res.ok) return [];
+        const drives = await res.json();
+        const list = document.getElementById('drivesList');
+        if (!list) return drives;
+        list.innerHTML = '';
+        drives.forEach(function(d) {
+            const container = document.createElement('div');
+            container.style.display = 'flex';
+            container.style.alignItems = 'center';
+            container.style.justifyContent = 'space-between';
+            container.className = 'nav-link ' + ((!isTrashView && d.id === currentDriveId) ? 'active' : '');
+            
+            const driveIcon = d.icon || '💽';
+            const a = document.createElement('a');
+            a.href = '#';
+            a.style.display = 'flex';
+            a.style.alignItems = 'center';
+            a.style.flexGrow = '1';
+            a.style.color = 'inherit';
+            a.style.textDecoration = 'none';
+            a.innerHTML = '<span class="nav-icon">' + driveIcon + '</span><span class="nav-text">' + d.letter + ': ' + d.label + '</span>';
+            a.onclick = function(e) {
+                e.preventDefault();
+                currentDriveId = d.id;
+                currentFolderId = 0;
+                setViewMode(false);
+            };
+
+            const editBtn = document.createElement('button');
+            editBtn.innerHTML = '✏️';
+            editBtn.title = 'Редактировать диск';
+            editBtn.style.background = 'none';
+            editBtn.style.border = 'none';
+            editBtn.style.cursor = 'pointer';
+            editBtn.style.fontSize = '12px';
+            editBtn.style.padding = '0 5px';
+            editBtn.onclick = function(e) {
+                e.stopPropagation();
+                openEditDriveModal(d);
+            };
+
+            container.appendChild(a);
+            container.appendChild(editBtn);
+            list.appendChild(container);
+        });
+        return drives;
+    } catch (e) {
+        console.error("Ошибка загрузки дисков:", e);
+        return [];
+    }
+}
+
+async function checkConfig() {
+    try {
+        const res = await fetch('/api/config?_t=' + Date.now());
+        if (!res.ok) return;
+        const cfg = await res.json();
+        
+        isAuthorized = cfg.is_authorized;
+        const status = document.getElementById('systemStatus');
+        await loadDrives();
+        
+        if (isAuthorized) {
+            if (status) {
+                status.textContent = "СИСТЕМА ГОТОВА"; 
+                status.classList.remove('unauth');
+            }
+            window.CrowAPI.emit('onAppReady');
+        }
+    } catch (e) {
+        console.error("Ошибка проверки конфига:", e);
+    }
+}
+
+const previewModal = document.getElementById('previewModal');
+const previewContent = document.getElementById('previewContent');
+
+function openPreview(id, name) {
+    const ext = name.split('.').pop().toLowerCase();
+    const url = '/api/stream/' + id;
+    const previewTitle = document.getElementById('previewTitle');
+    if (previewTitle) previewTitle.textContent = name;
+    
+    let html = '';
+    const imgExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+    const videoExts = ['mp4', 'webm', 'mkv', 'mov', 'avi', 'wmv', 'flv', 'm4v'];
+    const textExts = ['txt', 'md', 'json', 'py', 'js', 'html', 'css', 'csv', 'xml', 'cpp', 'java', 'php', 'log'];
+
+    if (imgExts.includes(ext)) {
+        html = '<div style="text-align:center; max-height:80vh; overflow:auto;"><img src="' + url + '" alt="' + name + '" style="max-width:100%; max-height:75vh; border-radius:8px; object-fit:contain;"></div>';
+        if (previewContent) previewContent.innerHTML = html;
+        if (previewModal) previewModal.style.display = 'flex';
+    } else if (videoExts.includes(ext)) {
+        html = '<video controls autoplay style="width:100%; max-height:70vh;"><source src="' + url + '"></video>';
+        if (previewContent) previewContent.innerHTML = html;
+        if (previewModal) previewModal.style.display = 'flex';
+    } else if (textExts.includes(ext)) {
+        html = '<pre style="max-height:70vh; overflow:auto; padding:15px; background:rgba(0,0,0,0.3); border-radius:6px; white-space:pre-wrap; word-break:break-word;">Загрузка текста...</pre>';
+        fetch(url).then(function(r) { return r.text(); }).then(function(txt) {
+            if (previewContent) previewContent.innerHTML = '<pre style="max-height:70vh; overflow:auto; padding:15px; background:rgba(0,0,0,0.3); border-radius:6px; white-space:pre-wrap; word-break:break-word;">' + txt.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+        });
+        if (previewModal) previewModal.style.display = 'flex';
+    } else {
+        window.location.href = '/api/download/' + id;
+    }
+}
+
+const closePreviewBtn = document.getElementById('closePreviewBtn');
+if (closePreviewBtn) {
+    closePreviewBtn.onclick = function() {
+        if (previewModal) previewModal.style.display = 'none';
+        if (previewContent) previewContent.innerHTML = '';
+    };
+}
+
+function getFileIcon(name, isFolder) {
+    if (isFolder) return '📁';
+    const ext = name.split('.').pop().toLowerCase();
+    const img = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+    const vid = ['mp4', 'webm', 'mkv', 'mov', 'avi', 'wmv', 'flv'];
+    const aud = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
+    const arc = ['zip', 'rar', '7z', 'tar', 'gz'];
+    const doc = ['doc', 'docx', 'txt', 'md', 'rtf'];
+    const xls = ['xls', 'xlsx', 'csv'];
+    const pdf = ['pdf'];
+    const code = ['py', 'js', 'html', 'css', 'json', 'xml', 'cpp', 'c', 'java', 'php'];
+    const exe = ['exe', 'apk', 'msi', 'bat', 'sh'];
+
+    if (img.includes(ext)) return '🖼️';
+    if (vid.includes(ext)) return '🎬';
+    if (aud.includes(ext)) return '🎵';
+    if (arc.includes(ext)) return '📦';
+    if (pdf.includes(ext)) return '📕';
+    if (doc.includes(ext)) return '📝';
+    if (xls.includes(ext)) return '📊';
+    if (code.includes(ext)) return '🧑‍💻';
+    if (exe.includes(ext)) return '⚙️';
+    return '📄';
+}
+
+function setViewMode(trash) {
+    isTrashView = trash;
+    currentFolderId = 0; 
+    loadDrives();
+    loadFiles();
+}
+
+async function loadFiles() {
+    try {
+        const url = isTrashView ? '/api/trash/files?_t=' + Date.now() : '/api/files?drive_id=' + currentDriveId + '&_t=' + Date.now();
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.ok) { allItems = await res.json(); renderView(); }
+    } catch (e) { console.error("Ошибка при получении списка файлов:", e); }
+}
+
+window.moveToTrash = async function(fileId, isFolder) { 
+    if (activeDropdown) activeDropdown.style.display = 'none';
+    await fetch('/api/files/' + fileId + '/trash?is_folder=' + !!isFolder, { method: 'POST' }); 
+    await loadFiles(); 
+};
+
+window.restoreFromTrash = async function(fileId, isFolder) { 
+    if (activeDropdown) activeDropdown.style.display = 'none';
+    await fetch('/api/files/' + fileId + '/restore?is_folder=' + !!isFolder, { method: 'POST' }); 
+    await loadFiles(); 
+};
+
+window.deletePermanently = async function(fileId) {
+    if (activeDropdown) activeDropdown.style.display = 'none';
+    if (!confirm("Окончательно удалить элемент?")) return;
+    await fetch('/api/files/' + fileId + '/permanent', { method: 'DELETE' }); 
+    await loadFiles(); 
+};
+
+function renderView() {
+    renderBreadcrumbs();
+    const searchInput = document.getElementById('searchInput');
+    const query = searchInput ? searchInput.value.toLowerCase() : '';
+    
+    let displayItems = allItems.filter(function(item) {
+        if (query) return item.name.toLowerCase().includes(query);
+        return isTrashView ? true : item.parent_id === currentFolderId;
+    });
+
+    const tableView = document.getElementById('tableViewContainer');
+    const gridView = document.getElementById('gridViewContainer');
+    const tbody = document.getElementById('fileList');
+
+    if (tbody) tbody.innerHTML = ''; 
+    if (gridView) gridView.innerHTML = '';
+
+    if (currentViewMode === 'table') {
+        if (tableView) tableView.style.display = 'block'; 
+        if (gridView) tableView.style.display = 'none';
+    } else {
+        if (tableView) tableView.style.display = 'none'; 
+        if (gridView) {
+            gridView.style.display = 'grid';
+            gridView.className = currentViewMode === 'grid_large' ? 'file-grid large' : 'file-grid small';
+        }
+    }
+
+    displayItems.forEach(function(f) {
+        const sizeStr = f.is_folder ? '--' : (f.size / (1024*1024)).toFixed(2) + ' MB';
+        const date = f.created_at ? new Date(f.created_at).toLocaleString() : '--';
+        let typeIcon = getFileIcon(f.name, f.is_folder);
+        const safeName = f.name.replace(/'/g, "\\'");
+
+        const downloadHTML = (!isTrashView && !f.is_folder) 
+            ? '<button onclick="window.downloadFileDirect(' + f.id + ')">📥 Скачать</button>' 
+            : '';
+
+        const dropdownHTML = '<div class="action-dropdown" id="dropdown-' + f.id + '" style="display: none;" onclick="event.stopPropagation()">' +
+            (!isTrashView && !f.is_folder ? '<button onclick="if(activeDropdown) activeDropdown.style.display=\'none\'; handleFileClick(' + f.id + ', \'' + safeName + '\')">▶ Воспроизвести</button>' : '') +
+            downloadHTML +
+            (!isTrashView ? '<button class="delete-item" onclick="window.moveToTrash(' + f.id + ', ' + f.is_folder + ')">🗑 В корзину</button>' : '') +
+            (isTrashView ? '<button onclick="window.restoreFromTrash(' + f.id + ', ' + f.is_folder + ')">↩ Восстановить</button>' : '') +
+            (isTrashView ? '<button class="delete-item" onclick="window.deletePermanently(' + f.id + ')">🔥 Удалить навсегда</button>' : '') +
+        '</div>';
+
+        if (currentViewMode === 'table') {
+            if (tbody) {
+                const tr = document.createElement('tr');
+                tr.className = 'draggable-row';
+                tr.innerHTML = '<td><input type="checkbox" class="hud-checkbox file-checkbox" data-id="' + f.id + '"></td>' +
+                    '<td><button class="fav-btn">' + (f.is_favorite ? '⭐' : '☆') + '</button></td>' +
+                    '<td onclick="' + (f.is_folder && !isTrashView ? 'navigateTo(' + f.id + ')' : 'handleFileClick(' + f.id + ', \'' + safeName + '\')') + '" style="cursor: pointer;">' +
+                        '<span class="table-icon">' + typeIcon + '</span>' + f.name +
+                    '</td>' +
+                    '<td>' + sizeStr + '</td>' +
+                    '<td>' + date + '</td>' +
+                    '<td class="action-cell">' +
+                        '<button class="action-menu-btn" onclick="window.toggleDropdown(event, ' + f.id + ')">⋮</button>' +
+                        dropdownHTML +
+                    '</td>';
+                tbody.appendChild(tr);
+            }
+        } else {
+            if (gridView) {
+                const card = document.createElement('div');
+                card.className = 'file-card';
+                card.onclick = function() {
+                    if (f.is_folder && !isTrashView) navigateTo(f.id);
+                    else if (!f.is_folder) handleFileClick(f.id, f.name);
+                };
+                card.innerHTML = '<div class="file-card-icon">' + typeIcon + '</div>' +
+                    '<div class="file-card-name" title="' + f.name + '">' + f.name + '</div>' +
+                    '<div class="file-card-size">' + sizeStr + '</div>' +
+                    '<div class="file-card-actions" onclick="event.stopPropagation()">' +
+                        '<button class="action-menu-btn" onclick="window.toggleDropdown(event, ' + f.id + ')">⋮</button>' +
+                        dropdownHTML +
+                    '</div>';
+                gridView.appendChild(card);
+            }
+        }
+    });
+}
+
+function renderBreadcrumbs() {
+    const bcContainer = document.getElementById('breadcrumbs');
+    if (!bcContainer) return;
+    bcContainer.innerHTML = '<span class="crumb" onclick="navigateTo(0)">🏠 Главная</span>';
+}
+
+function navigateTo(folderId) {
+    currentFolderId = folderId; 
+    renderView();
+}
+
+loadDrives();
+loadFiles();
+checkConfig();
+loadPlugins();
+=== END FILE ===
+--- FILE END: .\megacode.txt ---
+
+--- FILE START: .\pack_project.py ---
+import os
+
+# Папки и расширения, которые нужно пропустить
+EXCLUDE_DIRS = {'.git', '__pycache__', 'venv', '.venv', 'build', 'dist', '.idea', '.vscode'}
+ALLOWED_EXTENSIONS = {'.py', '.json', '.html', '.css', '.md', '.txt', '.yaml', '.yml', '.env.example'}
+
+OUTPUT_FILE = 'full_project_context.txt'
+
+def pack_project():
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as out:
+        out.write("=== СТРУКТУРА ПРОЕКТА ===\n")
+        for root, dirs, files in os.walk('.'):
+            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+            level = root.replace('.', '').count(os.sep)
+            indent = ' ' * 4 * level
+            out.write(f"{indent}{os.path.basename(root)}/\n")
+            subindent = ' ' * 4 * (level + 1)
+            for f in files:
+                if any(f.endswith(ext) for ext in ALLOWED_EXTENSIONS):
+                    out.write(f"{subindent}{f}\n")
+        
+        out.write("\n" + "="*50 + "\n\n")
+
+        out.write("=== СОДЕРЖИМОЕ ФАЙЛОВ ===\n\n")
+        for root, dirs, files in os.walk('.'):
+            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+            for file in files:
+                if any(file.endswith(ext) for ext in ALLOWED_EXTENSIONS) and file != OUTPUT_FILE:
+                    file_path = os.path.join(root, file)
+                    out.write(f"\n--- FILE START: {file_path} ---\n")
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            out.write(f.read())
+                    except Exception as e:
+                        out.write(f"[Ошибка чтения файла: {e}]\n")
+                    out.write(f"\n--- FILE END: {file_path} ---\n")
+
+if __name__ == '__main__':
+    pack_project()
+    print(f"Готово! Файл сохранен как {OUTPUT_FILE}")
+--- FILE END: .\pack_project.py ---
+
+--- FILE START: .\README_RU.md ---
+# 🦅 CrowGram Cloud Storage (Версия 2.0)
+
+**CrowGram** — это персональное облачное хранилище данных, использующее инфраструктуру и сервера Telegram в качестве бесконечного облака. Приложение нарезает файлы любого размера на чанки, загружает их в ваш закрытый канал или раздел «Избранное» и предоставляет удобный веб-интерфейс в стиле Google Drive / Яндекс Диска.
+
+---
+
+## 🌟 Основные возможности
+
+* ♾️ **Неограниченный объём:** Облако ограничено только лимитами самого Telegram.
+* 📦 **Загрузка файлов любого размера:** Автоматическая нарезка больших файлов на чанки (20 MB, 50 MB, 100 MB, 500 MB, 1.9 GB) с последующей сборкой на лету.
+* 🎬 **Медиаплеер и предпросмотр:** Стриминг видео и аудио без полного скачивания, просмотр изображений и текстовых документов. 
+* 📁 **Файловый менеджер:** Поддержка вложенных папок, древовидной навигации, сортировки, поиска и избранного.
+* 🗑 **Безопасная корзина:** Файлы не удаляются из Telegram сразу, а перемещаются в Корзину с возможностью восстановления.
+* 🎨 **Темы оформления:** Встроенная поддержка тем (Cloud Dark, Telegram Dark, macOS Light).
+* 💻 **Кроссплатформенность:** Работает на Windows, macOS и Linux.
+* 🧩 **Поддержка плагинов:** Ядро приложения готово к подключению расширений (Кинотеатр, Заметки и др.).
+
+---
+
+## 🚀 Быстрый запуск
+
+### 1. Автоматическая установка
+
+* **Windows:** Запустите `install_windows.bat`
+* **macOS / Linux:** Запустите в терминале `./install_linux_mac.sh`
+
+### 2. Запуск приложения
+
+* **Windows:** Запустите `start_windows.bat`
+* **macOS / Linux:** Запустите в терминале `./start_linux_mac.sh`
+
+После запуска браузер откроется автоматически по адресу: `http://127.0.0.1:8000`
+
+---
+
+## 🔑 Пошаговая инструкция: Получение Telegram API ID и API HASH
+
+Для работы приложения необходимы персональные ключи Telegram API. Это официальный и безопасный метод работы с Telegram.
+
+### Шаг 1. Регистрация приложения в Telegram
+1. Перейдите на официальный портал разработчиков Telegram: **[https://my.telegram.org](https://my.telegram.org)**.
+2. Введите ваш **номер телефона** в международном формате (например, `+79991112233`) и нажмите **Next**.
+3. В официальное приложение Telegram на смартфоне или ПК прийдёт служебное сообщение с кодом подтверждения. Скопируйте его, вставьте на сайте в поле **Confirmation code** и нажмите **Sign In**.
+4. В появившемся меню выберите пункт **API development tools**.
+5. Заполните форму создания приложения:
+   * **App title:** `CrowGram2` (или любое другое имя)
+   * **Short name:** `crowgram2`
+   * **URL:** можно оставить пустым или ввести `http://localhost`
+   * **Platform:** выберите `Desktop`
+   * **Description:** можно оставить пустым
+6. Нажмите кнопку **Create application**.
+
+### Шаг 2. Копирование ключей
+После создания приложения вы увидите две ключевые строки:
+* **App api_id** (например: `12345678`)
+* **App api_hash** (например: `abcdef1234567890abcdef1234567890`)
+
+Сохраните эти данные — они понадобятся для настройки CrowGram.
+
+---
+
+## ⚙️ Первоначальная настройка CrowGram
+
+1. Откройте веб-интерфейс CrowGram в браузере.
+2. Перейдите в раздел **Настройки** (иконка ⚙️ в боковом меню).
+3. В блоке **Конфигурация подключения** введите:
+   * **API ID:** полученный `api_id`.
+   * **API HASH:** полученный `api_hash`.
+   * **Чат / Канал для хранения:**
+     * Напишите `me` — чтобы файлы сохранялись в ваш личный раздел **«Избранное» (Saved Messages)**.
+     * Или укажите ID вашего частного канала/группы (например, `-1001234567890`).
+   * **Размер чанка нарезки:** выберите `50 MB` (рекомендуемая золотая середина).
+4. Нажмите **Сохранить**.
+
+---
+
+## 🔐 Авторизация аккаунта
+
+1. В том же окне **Настройки** перейдите к блоку **Авторизация аккаунта**.
+2. Введите ваш номер телефона в международном формате (`+7...`) и нажмите **Отправить код**.
+3. Введите полученный в Telegram одноразовый код и нажмите **Подтвердить**.
+4. Если у вас включена двухфакторная аутентификация (2FA), введите ваш **Облачный пароль** Telegram.
+5. После успешного входа статус в шапке сменится на **«СИСТЕМА ГОТОВА»**.
+
+---
+
+## ❓ Частые вопросы и решение проблем
+
+* **Ошибка: `Системные часы вашего компьютера рассинхронизированы...`**
+  * *Причина:* Telegram API требует точной синхронизации времени с сервером.
+  * *Решение:* Зайдите в настройки даты и времени вашего ПК/Mac и включите тумблер **«Устанавливать время автоматически»**.
+* **Какое назначение у размера чанка?**
+  * *50 MB (по умолчанию)* — идеальный баланс между скоростью и стабильностью.
+  * *20 MB* — подходит для нестабильного мобильного 3G/4G интернета.
+  * *100 MB+* — для гигабитного проводного интернета.
+* **Где хранятся мои файлы и сессия?**
+  * Все данные авторизации и SQLite база данных хранятся локально на вашем компьютере в папке `data/`. Никакие ключи не передаются сторонним серверам.
+* **Как перенести файлы из старой версии в версию 2.0?**
+  * Просто скопируйте файлы `crowgram.db` и `crowgram_session.session` из старой папки `data/` в новую папку `data/`. Приложение мгновенно подхватит вашу авторизацию и оглавление всех файлов.
+
+--- FILE END: .\README_RU.md ---
+
+--- FILE START: .\requirements.txt ---
+fastapi>=0.100.0
+uvicorn>=0.22.0
+pyrogram>=2.0.106
+tgcrypto>=1.2.5
+python-multipart>=0.0.6
+
+--- FILE END: .\requirements.txt ---
+
+--- FILE START: .\src\config.py ---
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+DATA_DIR = BASE_DIR / "data"
+TEMP_DIR = BASE_DIR / "temp"
+WEB_DIR = BASE_DIR / "src" / "web"
+LOCALES_DIR = BASE_DIR / "src" / "locales"
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
+WEB_DIR.mkdir(parents=True, exist_ok=True)
+LOCALES_DIR.mkdir(parents=True, exist_ok=True)
+(WEB_DIR / "static").mkdir(parents=True, exist_ok=True)
+
+DB_PATH = DATA_DIR / "crowgram.db"
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8000
+CHUNK_SIZE_BYTES = 49 * 1024 * 1024
+
+--- FILE END: .\src\config.py ---
+
+--- FILE START: .\src\core\base_plugin.py ---
+from fastapi import FastAPI
+from typing import Dict, Any, Optional
+
+class BasePlugin:
+    """
+    Базовый класс для всех плагинов CrowGram.
+    Любой новый плагин должен наследоваться от этого класса.
+    """
+    
+    name: str = "Unknown Plugin"
+    version: str = "1.0.0"
+    description: str = "Базовое описание плагина"
+    
+    def __init__(self):
+        pass
+
+    def init_plugin(self) -> bool:
+        return True
+
+    def register_routes(self, app: FastAPI):
+        pass
+
+    def get_ui_config(self) -> Optional[Dict[str, Any]]:
+        return None
+
+--- FILE END: .\src\core\base_plugin.py ---
+
+--- FILE START: .\src\core\db.py ---
+import sqlite3
+import json
+from pathlib import Path
+import sys
+
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
+from src.config import DB_PATH
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        
+        c.execute('''CREATE TABLE IF NOT EXISTS config (
+                        key TEXT PRIMARY KEY, value TEXT)''')
+        
+        c.execute('''CREATE TABLE IF NOT EXISTS drives (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        letter TEXT NOT NULL,
+                        label TEXT,
+                        tg_chat_id TEXT NOT NULL,
+                        icon TEXT DEFAULT '💽',
+                        is_default INTEGER DEFAULT 0
+                    )''')
+        
+        c.execute('''CREATE TABLE IF NOT EXISTS files (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        size INTEGER NOT NULL,
+                        parent_id INTEGER DEFAULT 0,
+                        thumbnail TEXT,
+                        in_trash INTEGER DEFAULT 0,
+                        is_favorite INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        drive_id INTEGER DEFAULT 1
+                    )''')
+                    
+        c.execute('''CREATE TABLE IF NOT EXISTS folders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        parent_id INTEGER DEFAULT 0,
+                        in_trash INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        drive_id INTEGER DEFAULT 1
+                    )''')
+                    
+        c.execute('''CREATE TABLE IF NOT EXISTS chunks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        file_id INTEGER,
+                        chunk_index INTEGER,
+                        message_id INTEGER,
+                        chunk_size INTEGER,
+                        sha256 TEXT,
+                        FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE
+                    )''')
+
+        c.execute("PRAGMA table_info(drives)")
+        drive_cols = [col['name'] for col in c.fetchall()]
+        if 'icon' not in drive_cols:
+            c.execute("ALTER TABLE drives ADD COLUMN icon TEXT DEFAULT '💽'")
+
+        c.execute("PRAGMA table_info(files)")
+        file_cols = [col['name'] for col in c.fetchall()]
+        
+        if 'drive_id' not in file_cols:
+            c.execute("ALTER TABLE files ADD COLUMN drive_id INTEGER DEFAULT 1")
+        if 'in_trash' not in file_cols:
+            c.execute("ALTER TABLE files ADD COLUMN in_trash INTEGER DEFAULT 0")
+        if 'is_favorite' not in file_cols:
+            c.execute("ALTER TABLE files ADD COLUMN is_favorite INTEGER DEFAULT 0")
+        if 'thumbnail' not in file_cols:
+            c.execute("ALTER TABLE files ADD COLUMN thumbnail TEXT DEFAULT ''")
+
+        c.execute("PRAGMA table_info(folders)")
+        folder_cols = [col['name'] for col in c.fetchall()]
+        
+        if 'drive_id' not in folder_cols:
+            c.execute("ALTER TABLE folders ADD COLUMN drive_id INTEGER DEFAULT 1")
+        if 'in_trash' not in folder_cols:
+            c.execute("ALTER TABLE folders ADD COLUMN in_trash INTEGER DEFAULT 0")
+
+        c.execute("SELECT COUNT(*) FROM drives")
+        if c.fetchone()[0] == 0:
+            c.execute("SELECT value FROM config WHERE key = 'target_chat'")
+            row = c.fetchone()
+            if row and row['value']:
+                c.execute("INSERT INTO drives (letter, label, tg_chat_id, icon, is_default) VALUES (?, ?, ?, ?, ?)", ('C', 'Основной', row['value'], '💽', 1))
+
+        conn.commit()
+
+def set_config(key, value):
+    with get_db_connection() as conn:
+        conn.cursor().execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+
+def get_config(key):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT value FROM config WHERE key = ?", (key,))
+        row = c.fetchone()
+        return row['value'] if row else None
+
+def get_all_config():
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT key, value FROM config")
+        return {row['key']: row['value'] for row in c.fetchall()}
+
+def get_drives():
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM drives ORDER BY letter")
+        return [dict(row) for row in c.fetchall()]
+
+def get_drive_info(drive_id):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM drives WHERE id = ?", (drive_id,))
+        row = c.fetchone()
+        return dict(row) if row else None
+
+def add_drive(letter, label, tg_chat_id, icon='💽', is_default=0):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        if is_default:
+            c.execute("UPDATE drives SET is_default = 0")
+        c.execute("INSERT INTO drives (letter, label, tg_chat_id, icon, is_default) VALUES (?, ?, ?, ?, ?)", (letter, label, tg_chat_id, icon, is_default))
+        conn.commit()
+        return c.lastrowid
+
+def update_drive_db(drive_id, letter, label, icon='💽'):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE drives SET letter = ?, label = ?, icon = ? WHERE id = ?", (letter, label, icon, drive_id))
+        conn.commit()
+
+def delete_drive_db(drive_id):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM drives WHERE id = ?", (drive_id,))
+        conn.commit()
+
+def add_file_record(name, size, parent_id, thumbnail, drive_id=1):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("INSERT INTO files (name, size, parent_id, thumbnail, drive_id) VALUES (?, ?, ?, ?, ?)", (name, size, parent_id, thumbnail, drive_id))
+        conn.commit()
+        return c.lastrowid
+
+def add_folder_record(name, parent_id, drive_id=1):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("INSERT INTO folders (name, parent_id, drive_id) VALUES (?, ?, ?)", (name, parent_id, drive_id))
+        conn.commit()
+        return c.lastrowid
+
+def add_chunk_record(file_id, chunk_index, message_id, chunk_size, sha256):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("INSERT INTO chunks (file_id, chunk_index, message_id, chunk_size, sha256) VALUES (?, ?, ?, ?, ?)", (file_id, chunk_index, message_id, chunk_size, sha256))
+        conn.commit()
+
+def list_files_db(drive_id=1):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        items = []
+        
+        c.execute("SELECT id, name, parent_id, in_trash, drive_id, created_at FROM folders WHERE drive_id = ? AND in_trash = 0", (drive_id,))
+        for row in c.fetchall():
+            items.append({**dict(row), "is_folder": True, "size": 0})
+            
+        c.execute("SELECT id, name, size, parent_id, thumbnail, in_trash, is_favorite, drive_id, created_at FROM files WHERE drive_id = ? AND in_trash = 0", (drive_id,))
+        for row in c.fetchall():
+            items.append({**dict(row), "is_folder": False})
+            
+        return items
+
+def list_trash_db():
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        items = []
+        
+        c.execute("SELECT id, name, parent_id, in_trash, drive_id, created_at FROM folders WHERE in_trash = 1")
+        for row in c.fetchall():
+            items.append({**dict(row), "is_folder": True, "size": 0})
+            
+        c.execute("SELECT id, name, size, parent_id, thumbnail, in_trash, is_favorite, drive_id, created_at FROM files WHERE in_trash = 1")
+        for row in c.fetchall():
+            items.append({**dict(row), "is_folder": False})
+            
+        return items
+
+def get_file_info(file_id):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM files WHERE id = ?", (file_id,))
+        row = c.fetchone()
+        if not row:
+            c.execute("SELECT * FROM folders WHERE id = ?", (file_id,))
+            row = c.fetchone()
+            if row:
+                return {**dict(row), "is_folder": True, "size": 0}
+            return None
+        return {**dict(row), "is_folder": False}
+
+def get_file_chunks(file_id):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM chunks WHERE file_id = ? ORDER BY chunk_index", (file_id,))
+        return [dict(row) for row in c.fetchall()]
+
+def move_to_trash_db(file_id, is_folder=False):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        if not is_folder:
+            c.execute("SELECT id FROM folders WHERE id = ?", (file_id,))
+            if c.fetchone(): is_folder = True
+        
+        table = "folders" if is_folder else "files"
+        c.execute(f"UPDATE {table} SET in_trash = 1 WHERE id = ?", (file_id,))
+        conn.commit()
+
+def restore_from_trash_db(file_id, is_folder=False):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        if not is_folder:
+            c.execute("SELECT id FROM folders WHERE id = ?", (file_id,))
+            if c.fetchone(): is_folder = True
+
+        table = "folders" if is_folder else "files"
+        c.execute(f"UPDATE {table} SET in_trash = 0 WHERE id = ?", (file_id,))
+        conn.commit()
+
+def delete_file_permanently_db(file_id):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id FROM folders WHERE id = ?", (file_id,))
+        if c.fetchone():
+            c.execute("DELETE FROM folders WHERE id = ?", (file_id,))
+            conn.commit()
+            return None
+
+        c.execute("SELECT c.message_id, f.drive_id FROM chunks c JOIN files f ON c.file_id = f.id WHERE c.file_id = ?", (file_id,))
+        rows = c.fetchall()
+        
+        if not rows:
+            c.execute("DELETE FROM files WHERE id = ?", (file_id,))
+            conn.commit()
+            return None
+
+        drive_id = rows[0]['drive_id']
+        msg_ids = [r['message_id'] for r in rows]
+        
+        c.execute("SELECT tg_chat_id FROM drives WHERE id = ?", (drive_id,))
+        d_row = c.fetchone()
+        tg_chat_id = d_row['tg_chat_id'] if d_row else None
+        
+        c.execute("DELETE FROM files WHERE id = ?", (file_id,))
+        c.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
+        conn.commit()
+        return {"msg_ids": msg_ids, "chat_id": tg_chat_id}
+
+def empty_trash_db():
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        
+        c.execute("SELECT id, drive_id FROM files WHERE in_trash = 1")
+        files_to_del = c.fetchall()
+        
+        tasks = {}
+        for f in files_to_del:
+            drive_id = f['drive_id']
+            c.execute("SELECT message_id FROM chunks WHERE file_id = ?", (f['id'],))
+            msg_ids = [r['message_id'] for r in c.fetchall()]
+            if msg_ids:
+                c.execute("SELECT tg_chat_id FROM drives WHERE id = ?", (drive_id,))
+                d_row = c.fetchone()
+                if d_row:
+                    tg_chat_id = d_row['tg_chat_id']
+                    if tg_chat_id not in tasks:
+                        tasks[tg_chat_id] = []
+                    tasks[tg_chat_id].extend(msg_ids)
+            
+        c.execute("DELETE FROM files WHERE in_trash = 1")
+        c.execute("DELETE FROM folders WHERE in_trash = 1")
+        c.execute("DELETE FROM chunks WHERE file_id NOT IN (SELECT id FROM files)")
+        
+        conn.commit()
+        return tasks
+
+def toggle_favorite_db(file_id, state, is_folder=False):
+    if is_folder: return
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE files SET is_favorite = ? WHERE id = ?", (state, file_id))
+        conn.commit()
+
+def move_item_db(file_id, new_parent_id, new_drive_id=None, is_folder=False):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        if not is_folder:
+            c.execute("SELECT id FROM folders WHERE id = ?", (file_id,))
+            if c.fetchone(): is_folder = True
+
+        table = "folders" if is_folder else "files"
+        if new_drive_id is not None:
+            c.execute(f"UPDATE {table} SET parent_id = ?, drive_id = ? WHERE id = ?", (new_parent_id, new_drive_id, file_id))
+        else:
+            c.execute(f"UPDATE {table} SET parent_id = ? WHERE id = ?", (new_parent_id, file_id))
+        conn.commit()
+
+def get_storage_stats():
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT SUM(size) as total_size, COUNT(id) as total_files FROM files WHERE in_trash = 0")
+        row = c.fetchone()
+        return {"total_size": row['total_size'] or 0, "total_files": row['total_files'] or 0}
+
+def export_db_to_json():
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        res = {}
+        for table in ['drives', 'files', 'folders', 'chunks']:
+            c.execute(f"SELECT * FROM {table}")
+            res[table] = [dict(row) for row in c.fetchall()]
+        return json.dumps(res)
+
+def import_db_from_json(json_str):
+    data = json.loads(json_str)
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        try:
+            for table in ['drives', 'files', 'folders', 'chunks']:
+                c.execute(f"DELETE FROM {table}")
+                if data.get(table):
+                    # Динамически получаем реальные имена колонок физической таблицы SQLite
+                    c.execute(f"PRAGMA table_info({table})")
+                    real_table_cols = set(col['name'] for col in c.fetchall())
+                    
+                    for row in data[table]:
+                        # Отфильтровываем все виртуальные/несуществующие ключи (например, 'is_folder')
+                        valid_keys = [k for k in row.keys() if k in real_table_cols]
+                        if not valid_keys:
+                            continue
+                        
+                        placeholders = ",".join(["?"] * len(valid_keys))
+                        vals = [row[k] for k in valid_keys]
+                        c.execute(f"INSERT INTO {table} ({','.join(valid_keys)}) VALUES ({placeholders})", vals)
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+
+--- FILE END: .\src\core\db.py ---
+
+--- FILE START: .\src\core\telegram_client.py ---
+import os
+import asyncio
+from pyrogram import Client
+from pyrogram.enums import ChatType, ChatMemberStatus
+from pyrogram.errors import SessionPasswordNeeded, FloodWait, PeerIdInvalid
+
+class TelegramManager:
+    def __init__(self):
+        self.app = None
+        self.session_name = "crowgram_session"
+        self.api_id = None
+        self.api_hash = None
+        self._chat_cache = {}
+        self._upload_semaphore = asyncio.Semaphore(3)
+
+    async def init_client(self):
+        from src.core.db import get_all_config
+        cfg = get_all_config()
+        self.api_id = cfg.get("api_id")
+        self.api_hash = cfg.get("api_hash")
+        
+        if self.api_id and self.api_hash:
+            if not self.app:
+                self.app = Client(self.session_name, api_id=int(self.api_id), api_hash=self.api_hash)
+            if not self.app.is_connected:
+                await self.app.connect()
+            try:
+                self.app.me = await self.app.get_me()
+            except Exception as e:
+                print(f"[WARN] Ошибка получения me: {e}")
+                self.app.me = None
+
+    def is_authorized(self):
+        return self.app and self.app.is_connected and getattr(self.app, "me", None) is not None
+
+    async def send_code(self, phone):
+        if not self.app: await self.init_client()
+        self.phone = phone
+        self.sent_code_info = await self.app.send_code(phone)
+
+    async def sign_in(self, phone, code):
+        await self.app.sign_in(phone, self.sent_code_info.phone_code_hash, code)
+        self.app.me = await self.app.get_me()
+
+    async def check_password(self, password):
+        await self.app.check_password(password)
+        self.app.me = await self.app.get_me()
+
+    async def get_admin_channels(self):
+        if not self.is_authorized(): return []
+        channels = []
+        async for dialog in self.app.get_dialogs():
+            chat = dialog.chat
+            if chat.type in [ChatType.CHANNEL, ChatType.SUPERGROUP, ChatType.GROUP]:
+                try:
+                    member = await self.app.get_chat_member(chat.id, "me")
+                    if member.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+                        channels.append({"id": str(chat.id), "title": chat.title or "Без названия"})
+                except:
+                    pass
+        return channels
+
+    async def create_new_channel(self, title):
+        if not self.is_authorized(): return None
+        chat = await self.app.create_channel(title, "Создано через CrowGram")
+        return str(chat.id)
+
+    async def _resolve_chat(self, chat_id):
+        target_key = str(chat_id).strip()
+        if target_key in self._chat_cache:
+            return self._chat_cache[target_key]
+
+        target = int(target_key) if target_key.replace("-", "").isdigit() else target_key
+        try:
+            chat = await self.app.get_chat(target)
+            self._chat_cache[target_key] = chat
+            return chat
+        except Exception:
+            async for dialog in self.app.get_dialogs():
+                if dialog.chat.id == target or str(dialog.chat.id) == target_key:
+                    self._chat_cache[target_key] = dialog.chat
+                    return dialog.chat
+            raise
+
+    async def upload_chunk(self, file_path, chat_id=None, progress_callback=None):
+        if not getattr(self.app, "me", None):
+            self.app.me = await self.app.get_me()
+            
+        if not self.app or not self.app.me:
+            raise Exception("Сессия Telegram не инициализирована")
+
+        if chat_id is None:
+            from src.core.db import get_config
+            chat_id = get_config("target_chat")
+            
+        if not chat_id:
+            raise Exception("Не указан целевой канал для загрузки")
+
+        chat_entity = await self._resolve_chat(chat_id)
+
+        async with self._upload_semaphore:
+            msg = await self.app.send_document(
+                chat_id=chat_entity.id, 
+                document=str(file_path), 
+                force_document=True, 
+                disable_notification=True,
+                progress=progress_callback
+            )
+            return msg.id
+
+    async def download_chunk_stream(self, message_id, chat_id=None):
+        if chat_id is None:
+            from src.core.db import get_config
+            chat_id = get_config("target_chat")
+            
+        chat_entity = await self._resolve_chat(chat_id)
+        msg = await self.app.get_messages(chat_entity.id, message_id)
+        if not msg or not msg.document: return
+        async for chunk in self.app.stream_media(msg.document):
+            yield chunk
+
+    async def delete_messages(self, msg_ids, chat_id=None):
+        if chat_id is None:
+            from src.core.db import get_config
+            chat_id = get_config("target_chat")
+            
+        if msg_ids and chat_id:
+            chat_entity = await self._resolve_chat(chat_id)
+            try:
+                await self.app.delete_messages(chat_entity.id, msg_ids)
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+                await self.app.delete_messages(chat_entity.id, msg_ids)
+
+    async def push_sync(self, json_data):
+        if not self.is_authorized(): return
+        file_path = "crowgram_sync.json"
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(json_data)
+        
+        msg = await self.app.send_document("me", document=file_path, file_name="crowgram_sync.json", caption="#crowgram_sync")
+        os.remove(file_path)
+        
+        async for m in self.app.search_messages("me", query="#crowgram_sync"):
+            if m.id != msg.id:
+                try: await m.delete()
+                except: pass
+
+    async def pull_sync(self):
+        if not self.is_authorized(): return None
+        async for m in self.app.search_messages("me", query="#crowgram_sync"):
+            if m.document and m.document.file_name == "crowgram_sync.json":
+                file_path = await self.app.download_media(m.document)
+                if not file_path: continue
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = f.read()
+                os.remove(file_path)
+                return data
+        return None
+
+tg_manager = TelegramManager()
+
+--- FILE END: .\src\core\telegram_client.py ---
+
+--- FILE START: .\src\web\index.html ---
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrowGram — Облачное хранилище</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link id="themeStylesheet" rel="stylesheet" href="/themes/default/theme.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="/static/js/artplayer.js"></script>
+    <style>
+        .plugin-bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid var(--border-color);
+            transition: transform 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="toggle-wrapper">
+                <button class="hamburger-btn" id="sidebarToggle" aria-label="Переключить меню">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 12h18M3 6h18M3 18h18"/>
+                    </svg>
+                </button>
+                <span class="tooltip" id="sidebarTooltip">Свернуть меню</span>
+            </div>
+            <h2 class="sidebar-logo">
+                <div class="crow-logo-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"/>
+                    </svg>
+                </div>
+                <span>CROWGRAM</span>
+            </h2>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-link active" id="navDriveBtn" data-tooltip="Оглавление">
+                <span class="nav-icon">📁</span>
+                <span class="nav-text">Оглавление</span>
+            </a>
+            <a href="#" class="nav-link" id="navTrashBtn" data-tooltip="Корзина">
+                <span class="nav-icon">🗑</span>
+                <span class="nav-text">Корзина</span>
+            </a>
+            
+            <div class="nav-divider"></div>
+
+            <div style="padding: 10px 20px; font-size: 11px; font-weight: 600; color: #8892b0; letter-spacing: 1px; display: flex; justify-content: space-between; align-items: center;">
+                <span>ДИСКИ</span>
+                <button id="openDriveModalBtn" style="background: none; border: none; color: var(--accent-blue); cursor: pointer; font-size: 18px; line-height: 1;">+</button>
+            </div>
+            <div id="drivesList"></div>
+            
+            <div class="nav-divider"></div>
+            
+            <a href="#" class="nav-link" id="navSettingsBtn" data-tooltip="Настройки">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-text">Настройки</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="stats-widget-mini">
+                <div class="stats-info">
+                    <span class="stats-title">ЗАНЯТО МЕСТА</span>
+                    <span class="stats-value" id="statsSize">0 MB</span>
+                </div>
+                <div class="stats-details">
+                    <span>Файлы: <b id="statsFiles">0</b></span>
+                    <span>Папки: <b id="statsFolders">0</b></span>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <div class="app-wrapper" id="appWrapper">
+        <div class="hud-container">
+            <header class="hud-header">
+                <div class="header-left">
+                    <h1 class="hud-title" id="panelHeaderTitle">CROWGRAM CLOUD</h1>
+                </div>
+                <div class="hud-controls">
+                    <select id="themeSwitcher" class="hud-select" style="margin-right: 8px;">
+                        <option value="default">🎨 Тема: Сloud Dark</option>
+                        <option value="telegram_dark">🎨 Тема: TG Dark</option>
+                        <option value="macos_light">🎨 Тема: Mac Light</option>
+                    </select>
+
+                    <span class="status-badge" id="systemStatus" data-i18n="status_ready">СИСТЕМА ГОТОВА</span>
+                    <select id="langSwitcher" class="lang-select">
+                        <option value="ru">RU</option>
+                        <option value="en">EN</option>
+                    </select>
+                </div>
+            </header>
+
+            <main class="hud-main">
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-zone-content">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                        </svg>
+                        <p data-i18n="upload_zone">ПЕРЕТАЩИТЕ ФАЙЛЫ ИЛИ ПАПКИ ДЛЯ ЗАГРУЗКИ В ГНЕЗДО</p>
+                    </div>
+                    <input type="file" id="fileInput" hidden multiple>
+                </div>
+
+                <div class="panel">
+                    <div class="table-toolbar">
+                        <div class="breadcrumbs" id="breadcrumbs"></div>
+
+                        <div class="toolbar-controls">
+                            <button class="hud-btn primary" id="pasteBtn" style="display: none; background-color: var(--accent-green, #2ec4b6);">📋 Вставить сюда</button>
+                            <select id="viewSwitcher" class="hud-select" style="margin-right: 12px; border-color: var(--accent-blue);">
+                                <option value="table">📑 Таблица</option>
+                                <option value="grid_large">🔲 Крупные значки</option>
+                                <option value="grid_small">🔳 Мелкие значки</option>
+                            </select>
+                            <input type="text" id="searchInput" class="hud-input" placeholder="Поиск файлов...">
+                            <select id="sortSelect" class="hud-select">
+                                <option value="date_desc">Сначала новые</option>
+                                <option value="date_asc">Сначала старые</option>
+                                <option value="name_asc">Имя (А-Я)</option>
+                                <option value="name_desc">Имя (Я-А)</option>
+                                <option value="size_desc">Размер (Крупные)</option>
+                                <option value="size_asc">Размер (Мелкие)</option>
+                            </select>
+                            <button class="hud-btn primary" id="createFolderBtn">+ Новая папка</button>
+                            <button class="hud-btn danger" id="emptyTrashBtn" style="display: none;">🗑 Очистить корзину</button>
+                        </div>
+                    </div>
+
+                    <div class="panel-header" id="batchPanelContainer" style="display: none;">
+                        <div class="batch-panel" id="batchPanel">
+                            <span class="batch-count" id="batchCount">Выбрано: 0</span>
+                            <button class="hud-btn primary" id="downloadFilesBtn">📄 Скачать файлами</button>
+                            <button class="hud-btn primary" id="downloadZipBtn">📦 Скачать ZIP</button>
+                            <button class="hud-btn primary" id="moveBatchBtn" style="background-color: var(--accent-blue);">📋 Перенести</button>
+                            <button class="hud-btn danger" id="deleteBatchBtn">🗑 В корзину</button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive" id="tableViewContainer">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 30px;"><input type="checkbox" id="selectAllCheckbox" class="hud-checkbox"></th>
+                                    <th style="width: 30px;">⭐</th>
+                                    <th data-i18n="col_name">ИМЯ</th>
+                                    <th data-i18n="col_size">РАЗМЕР</th>
+                                    <th data-i18n="col_date">ДАТА</th>
+                                    <th style="text-align: right;" data-i18n="col_actions">ДЕЙСТВИЯ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fileList"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="file-grid" id="gridViewContainer" style="display: none;"></div>
+                </div>
+            </main>
+        </div>
+        <!-- Точка монтирования UI для плагинов -->
+        <div id="plugin-mounts"></div>
+    </div>
+
+    <!-- МАСТЕР ПЕРВОНАЧАЛЬНОЙ НАСТРОЙКИ (SETUP WIZARD) -->
+    <div class="modal-overlay" id="wizardModal" style="display: none; z-index: 3000;">
+        <div class="modal-panel" style="max-width: 520px; width: 100%;">
+            <div class="modal-header">
+                <h2 class="panel-title">🧙 МАСТЕР УСТАНОВКИ CROWGRAM</h2>
+            </div>
+            
+            <!-- ШАГ 1: КЛЮЧИ TELEGRAM -->
+            <div id="wizardStep1" class="wizard-step">
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px; line-height: 1.5;">
+                    Для работы хранилища требуются ключи <b>API ID</b> и <b>API Hash</b>.<br>
+                    Получить их можно за 1 минуту на официальном сайте Telegram:
+                </p>
+                <ol style="font-size: 12px; color: #ccd6f6; margin-bottom: 15px; padding-left: 20px; line-height: 1.6;">
+                    <li>Перейдите на <a href="https://my.telegram.org" target="_blank" style="color: var(--accent-blue);">my.telegram.org</a> и авторизуйтесь.</li>
+                    <li>Откройте раздел <b>API development tools</b>.</li>
+                    <li>Создайте любое приложение и скопируйте значения ниже.</li>
+                </ol>
+                <form id="wizardApiForm" class="hud-form">
+                    <div class="form-group">
+                        <label>API ID:</label>
+                        <input type="text" id="wizardApiId" required placeholder="например, 12345678">
+                    </div>
+                    <div class="form-group">
+                        <label>API HASH:</label>
+                        <input type="password" id="wizardApiHash" required placeholder="например, a1b2c3d4e5f6...">
+                    </div>
+                    <button type="submit" class="hud-btn primary" style="width: 100%; margin-top: 10px;">СОХРАНИТЬ И ДАЛЕЕ ➔</button>
+                </form>
+            </div>
+
+            <!-- ШАГ 2: АВТОРИЗАЦИЯ -->
+            <div id="wizardStep2" class="wizard-step" style="display: none;">
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">
+                    Введите номер телефона вашего Telegram-аккаунта для подключения:
+                </p>
+                <div class="hud-form">
+                    <div class="form-group">
+                        <label>НОМЕР ТЕЛЕФОНА:</label>
+                        <input type="text" id="wizardPhone" placeholder="+79991112233">
+                    </div>
+                    <button type="button" class="hud-btn primary" id="wizardSendCodeBtn" style="width: 100%;">ОТПРАВИТЬ КОД</button>
+
+                    <div class="form-group" id="wizardCodeGroup" style="display:none; margin-top: 15px;">
+                        <label>КОД ПОДТВЕРЖДЕНИЯ:</label>
+                        <input type="text" id="wizardCode" placeholder="12345">
+                        <button type="button" class="hud-btn primary" id="wizardSignInBtn" style="width: 100%; margin-top: 8px;">ПОДТВЕРДИТЬ</button>
+                    </div>
+                    <div class="form-group" id="wizardPasswordGroup" style="display:none; margin-top: 15px;">
+                        <label>ОБЛАЧНЫЙ ПАРОЛЬ (2FA):</label>
+                        <input type="password" id="wizardPassword">
+                        <button type="button" class="hud-btn primary" id="wizardSubmitPasswordBtn" style="width: 100%; margin-top: 8px;">ВОЙТИ</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ШАГ 3: ПЕРВЫЙ ДИСК / СИНХРОНИЗАЦИЯ -->
+            <div id="wizardStep3" class="wizard-step" style="display: none;">
+                <div id="wizardSyncFoundBox" style="display: none; background: rgba(46, 196, 182, 0.1); border: 1px solid var(--accent-green, #2ec4b6); padding: 12px; border-radius: 6px; margin-bottom: 15px;">
+                    <p style="font-size: 13px; color: #2ec4b6; margin: 0; font-weight: 600;">🎉 Найдена существующая база в Telegram!</p>
+                    <p style="font-size: 11px; color: #ccd6f6; margin: 5px 0 10px 0;">Вы можете восстановить свои диски и структуру файлов в 1 клик.</p>
+                    <button type="button" class="hud-btn primary" id="wizardRestoreBtn" style="width: 100%; background: var(--accent-green, #2ec4b6);">📥 ВОССТАНОВИТЬ ИЗ ТЕЛЕГРАМ</button>
+                </div>
+
+                <hr id="wizardSyncDivider" class="hud-divider" style="display: none;">
+
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px;">
+                    Создайте ваш первый виртуальный диск для хранения файлов:
+                </p>
+                <form id="wizardDriveForm" class="hud-form">
+                    <div class="form-group">
+                        <label>БУКВА И НАЗВАНИЕ:</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="wizardDriveLetter" required maxlength="1" value="C" style="width: 50px; text-align: center;">
+                            <input type="text" id="wizardDriveLabel" required value="Основной" placeholder="Название">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="radio" name="wizardDriveAction" value="create_new" checked> Создать новый приватный канал
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                            <input type="radio" name="wizardDriveAction" value="link_existing"> Выбрать из существующих
+                        </label>
+                    </div>
+                    <div class="form-group" id="wizardBlockCreateNew">
+                        <label>НАЗВАНИЕ КАНАЛА:</label>
+                        <input type="text" id="wizardNewChannelTitle" value="CrowGram Drive: C">
+                    </div>
+                    <div class="form-group" id="wizardBlockLinkExisting" style="display: none;">
+                        <label>ВЫБЕРИТЕ КАНАЛ:</label>
+                        <select id="wizardExistingChannelSelect" class="hud-select">
+                            <option>Загрузка каналов...</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="hud-btn primary" style="width: 100%; margin-top: 10px;">🚀 ЗАВЕРШИТЬ НАСТРОЙКУ</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ / РЕДАКТИРОВАНИЯ ДИСКА -->
+    <div class="modal-overlay" id="driveModal" style="display: none; z-index: 2500;">
+        <div class="modal-panel">
+            <div class="modal-header">
+                <h2 class="panel-title" id="driveModalTitle">ДОБАВИТЬ ДИСК</h2>
+                <button class="close-btn" id="closeDriveBtn">&times;</button>
+            </div>
+            <form id="driveForm" class="hud-form">
+                <input type="hidden" id="editDriveId">
+                <input type="hidden" id="driveIconInput" value="💽">
+                
+                <div class="form-group">
+                    <label>ВЫБЕРИТЕ ИКОНКУ:</label>
+                    <div class="icon-presets" id="iconPresetsContainer" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;">
+                        <button type="button" class="icon-preset-btn active" data-icon="💽" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--accent-blue); border-radius: 6px; cursor: pointer;">💽</button>
+                        <button type="button" class="icon-preset-btn" data-icon="🎬" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🎬</button>
+                        <button type="button" class="icon-preset-btn" data-icon="🖼️" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🖼️</button>
+                        <button type="button" class="icon-preset-btn" data-icon="💼" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">💼</button>
+                        <button type="button" class="icon-preset-btn" data-icon="🎮" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🎮</button>
+                        <button type="button" class="icon-preset-btn" data-icon="📚" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">📚</button>
+                        <button type="button" class="icon-preset-btn" data-icon="🔐" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🔐</button>
+                        <button type="button" class="icon-preset-btn" data-icon="🎵" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🎵</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>БУКВА ДИСКА (напр. D):</label>
+                    <input type="text" id="driveLetterInput" required maxlength="1" placeholder="D">
+                </div>
+                <div class="form-group">
+                    <label>НАЗВАНИЕ (Метка):</label>
+                    <input type="text" id="driveLabelInput" required placeholder="Медиа">
+                </div>
+                <div class="form-group" id="driveActionGroup">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="radio" name="driveAction" value="create_new" checked> Создать новый канал
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                        <input type="radio" name="driveAction" value="link_existing"> Выбрать существующий
+                    </label>
+                </div>
+                <div class="form-group" id="blockCreateNew">
+                    <label>НАЗВАНИЕ НОВОГО КАНАЛА:</label>
+                    <input type="text" id="newChannelTitle" placeholder="CrowGram Drive: Медиа">
+                </div>
+                <div class="form-group" id="blockLinkExisting" style="display: none;">
+                    <label>ВЫБЕРИТЕ КАНАЛ:</label>
+                    <select id="existingChannelSelect" class="hud-select">
+                        <option>Загрузка каналов...</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button type="submit" class="hud-btn primary" style="flex: 1;">СОХРАНИТЬ</button>
+                    <button type="button" class="hud-btn danger" id="deleteDriveBtn" style="display: none; flex: 1;">УДАЛИТЬ ДИСК</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="previewModal" style="display: none; z-index: 2000;">
+        <div class="preview-panel">
+            <div class="modal-header">
+                <h2 class="panel-title" id="previewTitle">Предпросмотр</h2>
+                <button class="close-btn" id="closePreviewBtn">&times;</button>
+            </div>
+            <div class="preview-content" id="previewContent"></div>
+        </div>
+    </div>
+
+    <div class="upload-queue-widget" id="queueWidget" style="display: none;">
+        <div class="queue-header" id="queueHeader">
+            <span class="queue-title">Загрузка файлов (<span id="queueProgressCount">0/0</span>)</span>
+            <div>
+                <button class="queue-toggle-btn" id="queueClearBtn" title="Очистить завершенные" style="margin-right: 8px;">✖</button>
+                <button class="queue-toggle-btn" id="queueToggleBtn" title="Свернуть/Развернуть">−</button>
+            </div>
+        </div>
+        <div class="queue-body" id="queueBody"></div>
+    </div>
+
+    <!-- ОКНО НАСТРОЕК -->
+    <div class="modal-overlay" id="settingsModal" style="display: none;">
+        <div class="modal-panel">
+            <div class="modal-header">
+                <h2 class="panel-title" data-i18n="settings_title">НАСТРОЙКИ ПОДКЛЮЧЕНИЯ</h2>
+                <button class="close-btn" id="closeSettingsBtn">&times;</button>
+            </div>
+            <form id="settingsForm" class="hud-form">
+                <div class="form-group">
+                    <label>API ID:</label>
+                    <input type="text" id="apiIdInput" required placeholder="12345678">
+                </div>
+                <div class="form-group">
+                    <label>API HASH:</label>
+                    <input type="password" id="apiHashInput" required placeholder="abcdef123456...">
+                </div>
+                <div class="form-group">
+                    <label>РАЗМЕР ЧАНКА НАРЕЗКИ:</label>
+                    <select id="chunkSizeInput" class="hud-select">
+                        <option value="20971520">20 MB</option>
+                        <option value="52428800" selected>50 MB</option>
+                        <option value="104857600">100 MB</option>
+                        <option value="524288000">500 MB</option>
+                        <option value="2000000000">1.9 GB</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>МАКС. ОДНОВРЕМЕННЫХ ЗАГРУЗОК:</label>
+                    <select id="maxConcurrentUploadsInput" class="hud-select">
+                        <option value="1">1 файл</option>
+                        <option value="2">2 файла</option>
+                        <option value="3" selected>3 файла (Дефолт)</option>
+                        <option value="5">5 файлов</option>
+                        <option value="8">8 файлов</option>
+                    </select>
+                </div>
+                <button type="submit" class="hud-btn primary" data-i18n="save">СОХРАНИТЬ</button>
+            </form>
+            
+            <hr class="hud-divider">
+            <div class="auth-block">
+                <h3>СИНХРОНИЗАЦИЯ (ОБЛАКО)</h3>
+                <p style="font-size: 11px; color: #8892b0; margin-bottom: 10px;">Структура файлов и дисков сохраняется в вашем Избранном (Saved Messages).</p>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="hud-btn primary" id="pullSyncBtn" style="flex:1;">📥 Скачать из Telegram</button>
+                    <button type="button" class="hud-btn" id="pushSyncBtn" style="flex:1;">📤 Сохранить принудительно</button>
+                </div>
+            </div>
+
+            <hr class="hud-divider">
+            <div class="auth-block">
+                <h3>АВТОРИЗАЦИЯ АККАУНТА</h3>
+                <div class="form-group">
+                    <label>НОМЕР ТЕЛЕФОНА:</label>
+                    <input type="text" id="phoneInput" placeholder="+79991112233">
+                </div>
+                <button class="hud-btn" id="sendCodeBtn" data-i18n="send_code">ОТПРАВИТЬ КОД</button>
+
+                <div class="form-group" id="codeGroup" style="display:none; margin-top: 12px;">
+                    <label>КОД ИЗ TELEGRAM:</label>
+                    <input type="text" id="codeInput" placeholder="12345">
+                    <button class="hud-btn primary" id="signInBtn" style="margin-top: 8px;">ПОДТВЕРДИТЬ</button>
+                </div>
+                <div class="form-group" id="passwordGroup" style="display:none; margin-top: 12px;">
+                    <label>ОБЛАЧНЫЙ ПАРОЛЬ (2FA):</label>
+                    <input type="password" id="passwordInput">
+                    <button class="hud-btn primary" id="submitPasswordBtn" style="margin-top: 8px;">ВОЙТИ С ПАРОЛЕМ</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
+
+--- FILE END: .\src\web\index.html ---
+
+--- FILE START: .\src\web\static\css\style.css ---
+:root {
+    --bg-main: #0B0D10;
+    --bg-surface: #12151C;
+    --bg-surface-glass: rgba(18, 21, 28, 0.75);
+    --border-color: #1E2330;
+    --text-primary: #E2E8F0;
+    --text-muted: #64748B;
+    --accent-green: #10B981;
+    --accent-blue: #3B82F6;
+    --accent-amber: #F59E0B;
+    --accent-red: #EF4444;
+    --radius-panel: 10px;
+    --radius-control: 6px;
+    --radius-badge: 4px;
+    
+    --sidebar-width: 260px;
+    --sidebar-collapsed-width: 68px;
+    --body-bg-image: none;
+    --body-bg-size: auto;
+}
+
+body {
+    margin: 0; padding: 0;
+    background-color: var(--bg-main);
+    background-image: var(--body-bg-image);
+    background-size: var(--body-bg-size);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.sidebar {
+    width: var(--sidebar-width);
+    position: fixed; top: 0; bottom: 0; left: 0;
+    background: var(--bg-surface-glass);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid var(--border-color);
+    display: flex; flex-direction: column;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1000; overflow: hidden;
+}
+
+.sidebar.collapsed { width: var(--sidebar-collapsed-width); }
+
+.sidebar-header {
+    padding: 16px; display: flex; align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    min-height: 64px; box-sizing: border-box;
+}
+
+.toggle-wrapper { position: relative; display: flex; align-items: center; }
+
+.hamburger-btn {
+    background: transparent; border: none; color: var(--text-primary);
+    cursor: pointer; padding: 8px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s, color 0.2s;
+}
+.hamburger-btn:hover { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+
+.toggle-wrapper .tooltip {
+    position: absolute; left: 48px; top: 50%; transform: translateY(-50%);
+    background: var(--text-primary); color: var(--bg-main);
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    white-space: nowrap; pointer-events: none; opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); z-index: 1100;
+}
+.toggle-wrapper:hover .tooltip { opacity: 1; }
+
+.sidebar-logo {
+    font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700;
+    margin: 0 0 0 12px; color: var(--text-primary); white-space: nowrap;
+    opacity: 1; transition: opacity 0.2s; display: flex; align-items: center; gap: 8px;
+}
+
+.crow-logo-icon { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: var(--text-primary); flex-shrink: 0; }
+
+.sidebar.collapsed .sidebar-logo { opacity: 0; pointer-events: none; }
+
+.sidebar-nav {
+    flex: 1; padding: 16px 10px; display: flex; flex-direction: column;
+    gap: 6px; overflow-y: auto; overflow-x: hidden;
+}
+.nav-divider { height: 1px; background: var(--border-color); margin: 8px 0; }
+.nav-link {
+    display: flex; align-items: center; padding: 10px 12px;
+    color: var(--text-primary); text-decoration: none; font-size: 14px; font-weight: 600;
+    border-radius: var(--radius-control); transition: background 0.2s, color 0.2s; white-space: nowrap;
+}
+.nav-link:hover { background: rgba(59, 130, 246, 0.1); }
+.nav-link.active { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); }
+.nav-link.disabled { opacity: 0.4; cursor: not-allowed; }
+.nav-icon { font-size: 20px; min-width: 28px; display: flex; justify-content: center; }
+.nav-text { margin-left: 10px; opacity: 1; transition: opacity 0.2s; }
+.sidebar.collapsed .nav-text { opacity: 0; pointer-events: none; }
+
+.sidebar-footer {
+    padding: 16px; border-top: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.1); white-space: nowrap;
+}
+.stats-widget-mini { display: flex; flex-direction: column; gap: 6px; }
+.sidebar.collapsed .stats-widget-mini { display: none; }
+
+.stats-info { display: flex; flex-direction: column; gap: 2px; }
+.stats-title { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px;}
+.stats-value { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: var(--accent-blue); font-weight: 700; }
+.stats-details { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; }
+.stats-details b { color: var(--text-primary); }
+
+.app-wrapper {
+    margin-left: var(--sidebar-width); padding: 24px; min-height: 100vh;
+    transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex; justify-content: center;
+}
+.app-wrapper.collapsed { margin-left: var(--sidebar-collapsed-width); }
+
+.hud-container { width: 100%; max-width: 1200px; }
+
+.hud-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.header-left { display: flex; align-items: center; }
+.hud-title { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; margin: 0; text-transform: uppercase;}
+.hud-controls { display: flex; gap: 12px; align-items: center; }
+
+.status-badge {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+    background: rgba(16, 185, 129, 0.1); color: var(--accent-green);
+    border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 10px; border-radius: var(--radius-badge);
+}
+.status-badge.unauth { background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border-color: rgba(239, 68, 68, 0.3); }
+
+.hud-input, .lang-select, .hud-select {
+    background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-color);
+    border-radius: var(--radius-control); padding: 8px 10px; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; outline: none;
+}
+.hud-input:focus, .hud-select:focus { border-color: var(--accent-blue); }
+
+.hud-btn {
+    background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-color);
+    border-radius: var(--radius-control); padding: 6px 14px; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;
+}
+.hud-btn:hover { border-color: var(--accent-blue); box-shadow: 0 0 10px rgba(59, 130, 246, 0.25); }
+.hud-btn.primary { background: rgba(59, 130, 246, 0.2); border-color: var(--accent-blue); color: #FFF; }
+.hud-btn.danger { background: rgba(239, 68, 68, 0.15); border-color: var(--accent-red); color: var(--accent-red); }
+
+.drop-zone {
+    border: 2px dashed var(--border-color); background: rgba(18, 21, 28, 0.05);
+    border-radius: var(--radius-panel); padding: 48px; text-align: center; cursor: pointer; margin-bottom: 24px;
+}
+.drop-zone:hover, .drop-zone.active { border-color: var(--accent-blue); background: rgba(59, 130, 246, 0.05); }
+.drop-zone-content { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted); pointer-events: none; }
+
+.panel {
+    background: var(--bg-surface-glass); border: 1px solid var(--border-color);
+    border-radius: var(--radius-panel); padding: 16px; backdrop-filter: blur(8px);
+}
+
+.table-toolbar {
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 20px;
+    padding-bottom: 16px; border-bottom: 1px solid var(--border-color); gap: 12px;
+}
+
+.breadcrumbs {
+    display: flex; flex: 1 1 0%; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; padding: 6px;
+    overflow-x: auto; white-space: nowrap; align-items: center; min-width: 150px; scrollbar-width: thin;
+}
+.breadcrumbs::-webkit-scrollbar { height: 4px; }
+.breadcrumbs::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+.crumb { color: var(--accent-blue); cursor: pointer; transition: color 0.2s; padding: 4px 6px; border-radius: 4px;}
+.crumb:hover { color: #FFF; background: rgba(59, 130, 246, 0.2); }
+.crumb-separator { color: var(--text-muted); padding-top: 4px;}
+.crumb-active { color: var(--text-primary); cursor: default; }
+
+.toolbar-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
+.panel-header { margin-bottom: 16px; }
+.batch-panel { display: flex; align-items: center; gap: 12px; }
+.batch-count { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--accent-blue); font-weight: 600; }
+
+.table-responsive { width: 100%; overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.data-table th, .data-table td { text-align: left; padding: 12px; border-bottom: 1px solid var(--border-color); }
+.data-table th { color: var(--text-muted); font-weight: 600; }
+
+.file-grid { display: grid; gap: 16px; padding: 16px 0; }
+.file-grid.large { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.file-grid.small { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+
+.grid-item {
+    position: relative; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-panel);
+    padding: 16px; display: flex; flex-direction: column; align-items: center; text-align: center; transition: all 0.2s ease; cursor: pointer;
+}
+.grid-item:hover, .grid-item.drag-over { border-color: var(--accent-blue); background: rgba(59, 130, 246, 0.05); }
+.grid-icon { width: 64px; height: 64px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; font-size: 48px; }
+.file-grid.small .grid-icon { width: 48px; height: 48px; font-size: 32px; margin-bottom: 8px; }
+
+.grid-name { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-primary); word-break: break-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; width: 100%; }
+.grid-checkbox { position: absolute; top: 12px; left: 12px; z-index: 10; }
+.grid-fav-btn { position: absolute; top: 8px; right: 38px; z-index: 10; font-size: 16px; background: none; border: none; cursor: pointer; color: var(--text-muted); }
+.grid-fav-btn.active { color: var(--accent-amber); }
+.grid-action-cell { position: absolute; top: 8px; right: 8px; z-index: 20; }
+.grid-action-cell .action-dropdown { right: 0; top: 30px; }
+
+.draggable-row { cursor: grab; transition: background 0.15s; }
+.draggable-row:active { cursor: grabbing; opacity: 0.6; }
+.draggable-row.drag-over, .grid-item.drag-over { background: rgba(59, 130, 246, 0.2) !important; outline: 2px dashed var(--accent-blue); }
+.crumb.drag-over { background: rgba(59, 130, 246, 0.4) !important; }
+
+.folder-row { cursor: pointer; transition: background 0.15s; }
+.folder-row:hover { background: rgba(59, 130, 246, 0.05); }
+
+.file-thumb-grid { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+.file-thumb-table { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; vertical-align: middle; margin-right: 8px; }
+
+.table-icon { font-size: 18px; margin-right: 8px; vertical-align: middle; cursor: pointer;}
+.fav-btn { background: none; border: none; cursor: pointer; font-size: 16px; color: var(--text-muted); transition: transform 0.2s; }
+.fav-btn:hover { transform: scale(1.2); }
+.fav-btn.active { color: var(--accent-amber); }
+
+.action-cell { position: relative; text-align: right; }
+.action-menu-btn {
+    background: transparent; border: 1px solid var(--border-color); color: var(--text-primary);
+    width: 28px; height: 28px; border-radius: var(--radius-control); cursor: pointer; font-size: 16px;
+}
+.action-menu-btn:hover { border-color: var(--accent-blue); background: rgba(59, 130, 246, 0.1); }
+.action-dropdown {
+    position: absolute; right: 0; top: 36px; background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: var(--radius-control); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6); z-index: 100; display: flex; flex-direction: column;
+}
+.action-dropdown button, .action-dropdown a {
+    background: transparent; border: none; color: var(--text-primary); padding: 8px 12px; text-align: left;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; text-decoration: none; display: block;
+}
+.action-dropdown button:hover, .action-dropdown a:hover { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+.action-dropdown button.delete-item:hover { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+
+.modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(11, 13, 16, 0.85);
+    backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-panel { background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-panel); padding: 24px; width: 100%; max-width: 480px; }
+
+.preview-panel { background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-panel); padding: 24px; width: 90%; max-width: 1000px; max-height: 90vh; display: flex; flex-direction: column; }
+.preview-content { flex: 1; overflow: auto; margin-top: 16px; display: flex; justify-content: center; align-items: center; background: #000; border-radius: var(--radius-control); min-height: 400px;}
+.preview-content img { max-width: 100%; max-height: 70vh; object-fit: contain; }
+.preview-content video, .preview-content audio { width: 100%; max-height: 70vh; outline: none; }
+.preview-content pre { color: #FFF; width: 100%; height: 100%; margin: 0; padding: 16px; overflow: auto; font-family: 'JetBrains Mono', monospace; font-size: 12px; white-space: pre-wrap; text-align: left; }
+
+.modal-header { display: flex; justify-content: space-between; align-items: center; }
+.close-btn { background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; }
+.hud-form { display: flex; flex-direction: column; gap: 12px; }
+.form-group { display: flex; flex-direction: column; gap: 4px; }
+.form-group label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); }
+.form-group input { background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-control); padding: 8px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.hud-divider { border: 0; border-top: 1px solid var(--border-color); margin: 20px 0; }
+
+.upload-queue-widget {
+    position: fixed; right: 24px; bottom: 24px; width: 340px; background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: var(--radius-panel); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6); z-index: 900; overflow: hidden; font-family: 'JetBrains Mono', monospace;
+}
+.queue-header { background: rgba(0, 0, 0, 0.2); padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); }
+.queue-title { font-size: 11px; font-weight: 700; color: var(--text-primary); }
+.queue-toggle-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; }
+.queue-body { max-height: 220px; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.queue-item { background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; font-size: 10px; }
+.queue-item-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.queue-item-name { text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 180px; font-weight: 600; }
+.queue-item-meta { color: var(--text-muted); font-size: 9px; }
+.progress-bar-bg { background: var(--border-color); height: 4px; border-radius: 2px; overflow: hidden; margin-top: 4px; }
+.progress-bar-fill { background: var(--accent-blue); height: 100%; width: 0%; transition: width 0.2s ease; }
+.progress-bar-fill.done { background: var(--accent-green); }
+
+@media (max-width: 768px) {
+    .sidebar { width: var(--sidebar-width); transform: translateX(-100%); }
+    .sidebar.open { transform: translateX(0); box-shadow: 10px 0 30px rgba(0,0,0,0.8); }
+    .app-wrapper { margin-left: 0 !important; }
+}
+
+/* =========================================
+   ДОБАВЛЕННЫЕ СТИЛИ ДЛЯ МЕНЕДЖЕРА ЗАГРУЗОК
+   ========================================= */
+
+/* Делаем окно менеджера загрузок в два раза шире и крупнее */
+#queueWidget {
+    width: 600px !important; /* Увеличенная ширина */
+    padding: 20px !important;
+}
+
+#queueWidget .queue-header {
+    font-size: 1.2rem !important;
+    padding-bottom: 15px !important;
+}
+
+#queueWidget .queue-item {
+    margin-bottom: 15px !important;
+}
+
+#queueWidget .queue-item-name {
+    font-size: 1.1rem !important; /* Крупный шрифт для имени файла */
+}
+
+#queueWidget .queue-item-meta {
+    font-size: 1rem !important; /* Крупный текст со статусом и ETA */
+    margin-top: 5px !important;
+    margin-bottom: 8px !important;
+    color: var(--text-muted);
+}
+
+#queueWidget .progress-bar-bg {
+    height: 12px !important; /* Толстая, хорошо заметная полоса загрузки */
+    border-radius: 6px !important;
+}
+
+#queueWidget .progress-bar-fill {
+    border-radius: 6px !important;
+}
+--- FILE END: .\src\web\static\css\style.css ---
+
+--- FILE START: .\themes\default\theme.css ---
+:root {
+    --bg-main: #0B0D10;
+    --bg-surface: #12151C;
+    --bg-surface-glass: rgba(18, 21, 28, 0.75);
+    --border-color: #1E2330;
+    --text-primary: #E2E8F0;
+    --text-muted: #64748B;
+    --accent-green: #10B981;
+    --accent-blue: #3B82F6;
+    --accent-amber: #F59E0B;
+    --accent-red: #EF4444;
+    
+    --radius-panel: 10px;
+    --radius-control: 6px;
+    --radius-badge: 4px;
+    
+    --body-bg-image: linear-gradient(rgba(30, 35, 48, 0.3) 1px, transparent 1px),
+                     linear-gradient(90deg, rgba(30, 35, 48, 0.3) 1px, transparent 1px);
+    --body-bg-size: 32px 32px;
+}
+
+--- FILE END: .\themes\default\theme.css ---
+
+--- FILE START: .\themes\macos_light\theme.css ---
+:root {
+    --bg-main: #F2F2F7;
+    --bg-surface: #FFFFFF;
+    --bg-surface-glass: rgba(255, 255, 255, 0.65);
+    --border-color: #D1D1D6;
+    --text-primary: #1C1C1E;
+    --text-muted: #8E8E93;
+    --accent-green: #34C759;
+    --accent-blue: #007AFF;
+    --accent-amber: #FF9500;
+    --accent-red: #FF3B30;
+    
+    --radius-panel: 12px;
+    --radius-control: 8px;
+    --radius-badge: 6px;
+    
+    --body-bg-image: none;
+    --body-bg-size: auto;
+}
+
+--- FILE END: .\themes\macos_light\theme.css ---
+
+--- FILE START: .\themes\telegram_dark\theme.css ---
+:root {
+    --bg-main: #0E1621;
+    --bg-surface: #17212B;
+    --bg-surface-glass: rgba(23, 33, 43, 0.85);
+    --border-color: #242F3D;
+    --text-primary: #F5F5F5;
+    --text-muted: #7A8A96;
+    --accent-green: #2B9E46;
+    --accent-blue: #5288C1;
+    --accent-amber: #E2961D;
+    --accent-red: #E24848;
+    
+    --radius-panel: 8px;
+    --radius-control: 6px;
+    --radius-badge: 4px;
+    
+    --body-bg-image: none;
+    --body-bg-size: auto;
+}
+
+--- FILE END: .\themes\telegram_dark\theme.css ---

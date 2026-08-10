@@ -1,0 +1,19 @@
+:root {
+    --bg-main: #F2F2F7;
+    --bg-surface: #FFFFFF;
+    --bg-surface-glass: rgba(255, 255, 255, 0.65);
+    --border-color: #D1D1D6;
+    --text-primary: #1C1C1E;
+    --text-muted: #8E8E93;
+    --accent-green: #34C759;
+    --accent-blue: #007AFF;
+    --accent-amber: #FF9500;
+    --accent-red: #FF3B30;
+    
+    --radius-panel: 12px;
+    --radius-control: 8px;
+    --radius-badge: 6px;
+    
+    --body-bg-image: none;
+    --body-bg-size: auto;
+}
