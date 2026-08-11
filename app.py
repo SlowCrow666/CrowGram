@@ -3,6 +3,7 @@ import mimetypes
 import webbrowser
 import threading
 import asyncio
+import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
 import uvicorn
@@ -22,6 +23,9 @@ from src.api.files import router as files_router
 from src.api.stream import router as stream_router
 from src.api.local import router as local_router
 from src.api.plugins import router as plugins_router
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("CrowGram_Main")
 
 mimetypes.add_type('video/mp4', '.mp4')
 mimetypes.add_type('video/webm', '.webm')
@@ -71,7 +75,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="CrowGram Cloud Storage", lifespan=lifespan)
 
-# Подключение базовых роутов API
 app.include_router(auth_router)
 app.include_router(drives_router)
 app.include_router(files_router)
@@ -79,7 +82,6 @@ app.include_router(stream_router)
 app.include_router(local_router)
 app.include_router(plugins_router)
 
-# Статические директории
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.mount("/locales", StaticFiles(directory=LOCALES_DIR), name="locales")
 app.mount("/plugins", StaticFiles(directory=PLUGINS_DIR), name="plugins")
@@ -105,17 +107,24 @@ async def api_set_config(
     chunk_size: str = Form(None), 
     max_concurrent_uploads: str = Form(None)
 ):
-    clean_api_id = api_id.strip().replace('"', '').replace("'", "")
-    clean_api_hash = api_hash.strip().replace('"', '').replace("'", "")
-    
+    # Жесткая очистка полученных ключей
+    clean_api_id = str(api_id).strip().replace('"', '').replace("'", "").replace(" ", "")
+    clean_api_hash = str(api_hash).strip().replace('"', '').replace("'", "").replace(" ", "")
+
+    logger.info(f"[CONFIG] Сохранение ключей: API_ID={clean_api_id}, API_HASH_LENGTH={len(clean_api_hash)}")
+
     if not clean_api_id.isdigit():
-        raise HTTPException(status_code=400, detail="API ID должен состоять только из цифр!")
+        raise HTTPException(status_code=400, detail="API ID должен состоять строго из цифр!")
+
+    if len(clean_api_hash) < 10:
+        raise HTTPException(status_code=400, detail="API HASH слишком короткий!")
 
     set_config("api_id", clean_api_id)
     set_config("api_hash", clean_api_hash)
     if chunk_size: set_config("chunk_size", chunk_size.strip())
     if max_concurrent_uploads: set_config("max_concurrent_uploads", max_concurrent_uploads.strip())
     
+    # Принудительно перезапускаем Telegram клиент со свежесохраненными ключами
     await tg_manager.init_client()
     return {"status": "success"}
 
