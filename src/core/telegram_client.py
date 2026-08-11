@@ -26,13 +26,11 @@ class TelegramManager:
         except ValueError:
             raise Exception("API ID должен состоять только из цифр!")
 
-        # Если клиент уже создан и работает с этими же ключами — просто используем его
         if self.app and getattr(self, "_current_id", None) == clean_id:
             if not self.app.is_connected:
                 await self.app.connect()
             return
 
-        # Если ключи сменились — аккуратно отключаем старый клиент
         if self.app:
             try:
                 if self.app.is_connected:
@@ -50,15 +48,18 @@ class TelegramManager:
         await self.app.connect()
 
     async def send_code(self, phone: str):
-        # Подключаем клиент без постоянного сноса сессии
         await self.init_client()
 
         if not self.app or not self.app.is_connected:
             raise Exception("Не удалось установить соединение с Telegram")
 
         self.phone = phone
+        print(f"\n[TG API] Вызываем send_code для номера {phone}...")
+        
         res = await self.app.send_code(phone)
         self.phone_code_hash = res.phone_code_hash
+        
+        print(f"[TG API] Ответ получен! Hash: {self.phone_code_hash}, Type: {getattr(res, 'type', 'N/A')}\n")
         
         return {"status": "code_sent"}
 
@@ -66,17 +67,23 @@ class TelegramManager:
         if not self.app or not self.phone or not self.phone_code_hash:
             raise Exception("Сессия истекла. Запросите код заново.")
         try:
+            print(f"\n[TG API] Попытка входа с кодом {code}...")
             await self.app.sign_in(self.phone, self.phone_code_hash, code)
+            print("[TG API] Авторизация успешна!\n")
             return {"status": "success"}
         except Exception as e:
-            if "SESSION_PASSWORD_NEEDED" in str(e):
+            err_msg = str(e)
+            print(f"[TG API] Ошибка при авторизации: {err_msg}\n")
+            if "SESSION_PASSWORD_NEEDED" in err_msg:
                 return {"status": "password_required"}
             raise e
 
     async def check_password(self, password: str):
         if not self.app:
             raise Exception("Сессия не инициализирована")
+        print("\n[TG API] Проверка 2FA пароля...")
         await self.app.check_password(password)
+        print("[TG API] 2FA пароль верен!\n")
         return {"status": "success"}
 
 tg_manager = TelegramManager()
