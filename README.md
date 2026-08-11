@@ -1,4 +1,3 @@
-=== FILE: README.md ===
 # 🐦‍⬛ CrowGram Cloud Storage
 
 **CrowGram** is an open-source decentralized virtual drive system that transforms unlimited Telegram cloud storage into a structured, high-performance personal media hub.
