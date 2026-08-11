@@ -23,18 +23,11 @@ window.CrowAPI = {
         this.plugins[name] = plugin;
         try {
             if (plugin.init) plugin.init(this);
-            console.log('[CrowGram Plugin System] Плагин успешно зарегистрирован:', name);
-        } catch (e) {
-            console.error('[CrowGram Plugin System] Ошибка инициализации плагина:', name, e);
-        }
+        } catch (e) {}
     },
     
     addHook: function(hookName, callback) {
-        if (this.hooks[hookName]) {
-            this.hooks[hookName].push(callback);
-        } else {
-            console.warn('[CrowGram Plugin System] Попытка подписки на неизвестный хук:', hookName);
-        }
+        if (this.hooks[hookName]) this.hooks[hookName].push(callback);
     },
     
     emit: function(hookName, ...args) {
@@ -42,55 +35,12 @@ window.CrowAPI = {
             let handled = false;
             for (let cb of this.hooks[hookName]) {
                 try { 
-                    const result = cb(...args);
-                    if (result === true) handled = true; 
-                } catch (e) { 
-                    console.error('[CrowGram Plugin System] Ошибка в хуке ' + hookName + ':', e); 
-                }
+                    if (cb(...args) === true) handled = true; 
+                } catch (e) {}
             }
             return handled;
         }
         return false;
-    },
-
-    emitRenderButtons: function(fileId, fileExt, isFolder) {
-        let buttonsHTML = '';
-        if (this.hooks.renderContextMenu) {
-            for (let cb of this.hooks.renderContextMenu) {
-                try {
-                    const html = cb(fileId, fileExt, isFolder);
-                    if (html && typeof html === 'string') {
-                        buttonsHTML += html;
-                    }
-                } catch (e) {
-                    console.error('[CrowGram Plugin System] Ошибка renderContextMenu:', e);
-                }
-            }
-        }
-        return buttonsHTML;
-    },
-    
-    readFile: async function(fileId) {
-        const res = await fetch('/api/download/' + fileId);
-        if (!res.ok) throw new Error('Ошибка чтения файла');
-        return await res.text();
-    },
-    saveFile: async function(fileId, fileName, textContent) {
-        const res = await fetch('/api/files/' + fileId + '/save', { method: 'POST', body: textContent });
-        if (!res.ok) throw new Error('Ошибка перезаписи файла');
-        const data = await res.json();
-        if (window.loadFiles) await window.loadFiles();
-        return data.new_id || fileId;
-    },
-    ui: {
-        addBottomBar: function(id, html) {
-            let mounts = document.getElementById('plugin-mounts');
-            if (!mounts) { mounts = document.createElement('div'); mounts.id = 'plugin-mounts'; document.body.appendChild(mounts); }
-            let bar = document.createElement('div');
-            bar.id = id; bar.className = 'plugin-bottom-bar'; bar.innerHTML = html;
-            mounts.appendChild(bar);
-            return bar;
-        }
     }
 };
 
@@ -112,9 +62,67 @@ function clearWizardError() {
     if (box) box.style.display = 'none';
 }
 
-function finishAuthAndOpenApp() {
-    document.getElementById('wizardModal').style.display = 'none';
-    window.location.reload();
+async function loadDrives() {
+    try {
+        const res = await fetch('/api/drives');
+        if (res.ok) {
+            const drives = await res.json();
+            const container = document.getElementById('drivesList');
+            if (container) {
+                container.innerHTML = drives.map(d => `
+                    <a href="#" class="nav-link ${d.id === currentDriveId ? 'active' : ''}" onclick="selectDrive(${d.id})">
+                        <span class="nav-icon">${d.icon || '💽'}</span>
+                        <span class="nav-text">${d.letter}: ${d.label}</span>
+                    </a>
+                `).join('');
+            }
+        }
+    } catch (e) {}
+}
+
+async function loadFiles() {
+    try {
+        const res = await fetch(`/api/files?drive_id=${currentDriveId}&parent_id=${currentFolderId}`);
+        if (res.ok) {
+            const files = await res.json();
+            allItems = files;
+            renderFileList(files);
+        }
+    } catch (e) {}
+}
+
+function renderFileList(items) {
+    const tbody = document.getElementById('fileList');
+    if (!tbody) return;
+
+    if (!items || items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #8892b0; padding: 20px;">Папка пуста</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = items.map(item => `
+        <tr>
+            <td><input type="checkbox" value="${item.id}"></td>
+            <td>${item.is_folder ? '📁' : '📄'} ${item.name}</td>
+            <td>${item.is_folder ? '--' : formatBytes(item.size)}</td>
+            <td>${item.created_at || '--'}</td>
+        </tr>
+    `).join('');
+}
+
+function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function selectDrive(driveId) {
+    currentDriveId = driveId;
+    currentFolderId = 0;
+    loadDrives();
+    loadFiles();
 }
 
 function bindWizardEvents() {
@@ -223,7 +231,8 @@ function bindWizardEvents() {
             if (data.status === 'password_required') {
                 document.getElementById('wizardPasswordGroup').style.display = 'block';
             } else if (res.ok && data.status === 'success') {
-                finishAuthAndOpenApp();
+                document.getElementById('wizardStep2').style.display = 'none';
+                document.getElementById('wizardStep3').style.display = 'block';
             } else {
                 showWizardError(data.detail || 'Неверный код!');
             }
@@ -258,7 +267,8 @@ function bindWizardEvents() {
             const data = await res.json().catch(() => ({}));
 
             if (res.ok && data.status === 'success') {
-                finishAuthAndOpenApp();
+                document.getElementById('wizardStep2').style.display = 'none';
+                document.getElementById('wizardStep3').style.display = 'block';
             } else {
                 showWizardError(data.detail || 'Неверный 2FA пароль!');
             }
@@ -267,6 +277,42 @@ function bindWizardEvents() {
         } finally {
             btn.disabled = false;
             btn.textContent = 'ВОЙТИ';
+        }
+    });
+
+    // ШАГ 3: Создание первого диска
+    document.getElementById('wizardFinishBtn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        clearWizardError();
+
+        const btn = document.getElementById('wizardFinishBtn');
+        let chatId = document.getElementById('wizardChatId').value.trim();
+
+        if (!chatId) chatId = 'me';
+
+        btn.disabled = true;
+        btn.textContent = 'СОЗДАНИЕ ДИСКА...';
+
+        const fd = new FormData();
+        fd.append('letter', 'C');
+        fd.append('label', 'Основной');
+        fd.append('tg_chat_id', chatId);
+
+        try {
+            const res = await fetch('/api/drives', { method: 'POST', body: fd });
+            if (res.ok) {
+                document.getElementById('wizardModal').style.display = 'none';
+                loadDrives();
+                loadFiles();
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                showWizardError(errData.detail || 'Ошибка создания диска');
+            }
+        } catch (e) {
+            showWizardError('Ошибка связи с сервером');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'ЗАВЕРШИТЬ НАСТРОЙКУ 🚀';
         }
     });
 }
@@ -280,6 +326,8 @@ async function checkAppAuthStatus() {
                 document.getElementById('wizardModal').style.display = 'flex';
             } else {
                 document.getElementById('wizardModal').style.display = 'none';
+                loadDrives();
+                loadFiles();
             }
         }
     } catch (e) {}

@@ -10,22 +10,6 @@
     <script src="/static/js/artplayer.js"></script>
 </head>
 <body>
-    <div class="modal-overlay" id="appLockModal" style="display: none; z-index: 4000; background: rgba(11, 13, 16, 0.98);">
-        <div class="modal-panel" style="max-width: 400px; text-align: center;">
-            <div style="font-size: 48px; margin-bottom: 10px;">🔐</div>
-            <h2 class="panel-title" style="margin-bottom: 6px;">ДОСТУП ОГРАНИЧЕН</h2>
-            <p style="font-size: 12px; color: #8892b0; margin-bottom: 20px;">Введите пароль приложения для продолжения работы</p>
-            <form id="appLockForm" class="hud-form">
-                <div class="form-group">
-                    <input type="password" id="appLockPassword" placeholder="Введите пароль..." required style="text-align: center; font-size: 16px; letter-spacing: 2px;">
-                </div>
-                <button type="submit" class="hud-btn primary" style="width: 100%; margin-top: 10px; padding: 10px;">РАЗБЛОКИРОВАТЬ</button>
-            </form>
-            <button type="button" id="forgotPasswordBtn" style="background: none; border: none; color: var(--accent-blue); font-size: 11px; cursor: pointer; margin-top: 15px; text-decoration: underline;">Забыли пароль?</button>
-            <div id="recoveryStatusBox" style="display: none; margin-top: 15px; font-size: 11px; padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.05); text-align: left;"></div>
-        </div>
-    </div>
-
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="toggle-wrapper">
@@ -87,7 +71,7 @@
         </div>
     </div>
 
-    <!-- МАСТЕР НАСТРОЙКИ С КНОПКАМИ НАЗАД -->
+    <!-- МАСТЕР НАСТРОЙКИ С ШАГОМ 3 (ДИСКИ) -->
     <div class="modal-overlay" id="wizardModal" style="display: none; z-index: 3000;">
         <div class="modal-panel" style="max-width: 520px; width: 100%;">
             <div class="modal-header">
@@ -96,7 +80,7 @@
             
             <div id="wizardErrorBox" style="display:none; padding:10px; border-radius:6px; background:rgba(239,68,68,0.15); border:1px solid #ef4444; color:#f87171; font-size:12px; margin-bottom:12px;"></div>
 
-            <!-- ШАГ 1 -->
+            <!-- ШАГ 1: КЛЮЧИ -->
             <div id="wizardStep1" class="wizard-step">
                 <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px;">Введите ключи API с сайта my.telegram.org:</p>
                 <div class="hud-form">
@@ -112,7 +96,7 @@
                 </div>
             </div>
 
-            <!-- ШАГ 2 -->
+            <!-- ШАГ 2: ВХОД -->
             <div id="wizardStep2" class="wizard-step" style="display: none;">
                 <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Введите номер телефона Telegram-аккаунта:</p>
                 <div class="hud-form">
@@ -133,8 +117,19 @@
                         <button type="button" class="hud-btn primary" id="wizardSubmitPasswordBtn" style="width: 100%; margin-top: 8px;">ВОЙТИ</button>
                     </div>
                 </div>
-                <!-- КНОПКА ВОЗВРАТА -->
                 <button type="button" id="wizardBackToStep1Btn" class="hud-btn" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.08);">⬅ НАЗАД К КЛЮЧАМ API</button>
+            </div>
+
+            <!-- ШАГ 3: ИНИЦИАЛИЗАЦИЯ ДИСКА -->
+            <div id="wizardStep3" class="wizard-step" style="display: none;">
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Настройка основного виртуального диска Telegram:</p>
+                <div class="hud-form">
+                    <div class="form-group">
+                        <label>ID ЧАТА / КАНАЛА ДЛЯ ХРАНЕНИЯ (-100...):</label>
+                        <input type="text" id="wizardChatId" placeholder="-1001234567890 или 'me' для Избранного">
+                    </div>
+                    <button type="button" class="hud-btn primary" id="wizardFinishBtn" style="width: 100%; margin-top: 10px;">ЗАВЕРШИТЬ НАСТРОЙКУ 🚀</button>
+                </div>
             </div>
         </div>
     </div>
