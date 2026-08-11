@@ -98,6 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bindUIEvents();
     bindUploadEvents();
     bindSettingsAndAuthEvents();
+    bindWizardEvents();
     bindAppLockEvents();
     bindBatchEvents();
     bindPluginManagerEvents();
@@ -121,6 +122,113 @@ async function checkAppAuthStatus() {
     } catch (e) {
         checkConfig();
     }
+}
+
+function bindWizardEvents() {
+    // ШАГ 1: Сохранение API ID и API Hash
+    document.getElementById('wizardApiForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const apiId = document.getElementById('wizardApiId').value.trim();
+        const apiHash = document.getElementById('wizardApiHash').value.trim();
+
+        if (!apiId || !apiHash) {
+            alert('Пожалуйста, заполните API ID и API HASH');
+            return;
+        }
+
+        const fd = new FormData();
+        fd.append('api_id', apiId);
+        fd.append('api_hash', apiHash);
+
+        try {
+            const res = await fetch('/api/config', { method: 'POST', body: fd });
+            if (res.ok) {
+                // Переходим на Шаг 2 (Авторизация)
+                document.getElementById('wizardStep1').style.display = 'none';
+                document.getElementById('wizardStep2').style.display = 'block';
+            } else {
+                alert('Ошибка сохранения ключей API');
+            }
+        } catch (err) {
+            alert('Ошибка связи с сервером');
+        }
+    });
+
+    // ШАГ 2: Отправка телефона
+    document.getElementById('wizardSendCodeBtn')?.addEventListener('click', async () => {
+        const phone = document.getElementById('wizardPhone').value.trim();
+        if (!phone) {
+            alert('Введите номер телефона!');
+            return;
+        }
+        const fd = new FormData();
+        fd.append('phone', phone);
+        try {
+            const res = await fetch('/api/auth/send-code', { method: 'POST', body: fd });
+            if (res.ok) {
+                document.getElementById('wizardCodeGroup').style.display = 'block';
+            } else {
+                alert('Ошибка отправки кода. Проверьте правильность номера и ключи API.');
+            }
+        } catch (e) {
+            alert('Ошибка сервера');
+        }
+    });
+
+    // ШАГ 2: Подтверждение кода
+    document.getElementById('wizardSignInBtn')?.addEventListener('click', async () => {
+        const code = document.getElementById('wizardCode').value.trim();
+        if (!code) {
+            alert('Введите код подтверждения!');
+            return;
+        }
+        const fd = new FormData();
+        fd.append('code', code);
+        try {
+            const res = await fetch('/api/auth/sign-in', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data.status === 'password_required') {
+                document.getElementById('wizardPasswordGroup').style.display = 'block';
+            } else if (res.ok) {
+                // Успешный вход -> переходим на Шаг 3 (Диск)
+                document.getElementById('wizardStep2').style.display = 'none';
+                document.getElementById('wizardStep3').style.display = 'block';
+                checkConfig();
+            } else {
+                alert('Неверный код!');
+            }
+        } catch (e) {
+            alert('Ошибка авторизации');
+        }
+    });
+
+    // ШАГ 2: Ввод 2FA пароля
+    document.getElementById('wizardSubmitPasswordBtn')?.addEventListener('click', async () => {
+        const password = document.getElementById('wizardPassword').value;
+        const fd = new FormData();
+        fd.append('password', password);
+        try {
+            const res = await fetch('/api/auth/password', { method: 'POST', body: fd });
+            if (res.ok) {
+                document.getElementById('wizardStep2').style.display = 'none';
+                document.getElementById('wizardStep3').style.display = 'block';
+                checkConfig();
+            } else {
+                alert('Неверный 2FA пароль!');
+            }
+        } catch (e) {
+            alert('Ошибка сервера');
+        }
+    });
+
+    // Переключатель типа канала на Шаге 3
+    document.querySelectorAll('input[name="wizardDriveAction"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            const isCreate = e.target.value === 'create_new';
+            document.getElementById('wizardBlockCreateNew').style.display = isCreate ? 'block' : 'none';
+            document.getElementById('wizardBlockLinkExisting').style.display = isCreate ? 'none' : 'block';
+        });
+    });
 }
 
 function bindAppLockEvents() {
@@ -256,7 +364,6 @@ function openAuthOrWizardModal() {
 }
 
 function bindUIEvents() {
-    // Кликер по плашке статуса в шапке
     const systemStatusBadge = document.getElementById('systemStatus');
     if (systemStatusBadge) {
         systemStatusBadge.style.cursor = 'pointer';
@@ -892,6 +999,9 @@ async function checkConfig() {
         
         if (document.getElementById('apiIdInput') && cfg.api_id) document.getElementById('apiIdInput').value = cfg.api_id;
         if (document.getElementById('apiHashInput') && cfg.api_hash) document.getElementById('apiHashInput').value = cfg.api_hash;
+        if (document.getElementById('wizardApiId') && cfg.api_id) document.getElementById('wizardApiId').value = cfg.api_id;
+        if (document.getElementById('wizardApiHash') && cfg.api_hash) document.getElementById('wizardApiHash').value = cfg.api_hash;
+
         if (document.getElementById('settingsEnablePassToggle')) {
             document.getElementById('settingsEnablePassToggle').checked = !!cfg.has_app_password;
         }
@@ -909,7 +1019,6 @@ async function checkConfig() {
                 status.textContent = "ТРЕБУЕТСЯ АВТОРИЗАЦИЯ"; 
                 status.classList.add('unauth');
             }
-            // Вызываем мастер установки автоматически, если аккаунт не привязан
             openAuthOrWizardModal();
         }
     } catch (e) { console.error("Ошибка проверки конфига:", e); }
