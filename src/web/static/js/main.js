@@ -244,7 +244,27 @@ function bindAppLockEvents() {
     });
 }
 
+function openAuthOrWizardModal() {
+    const wizardModal = document.getElementById('wizardModal');
+    const settingsModal = document.getElementById('settingsModal');
+    
+    if (wizardModal) {
+        wizardModal.style.display = 'flex';
+    } else if (settingsModal) {
+        settingsModal.style.display = 'flex';
+    }
+}
+
 function bindUIEvents() {
+    // Кликер по плашке статуса в шапке
+    const systemStatusBadge = document.getElementById('systemStatus');
+    if (systemStatusBadge) {
+        systemStatusBadge.style.cursor = 'pointer';
+        systemStatusBadge.addEventListener('click', () => {
+            openAuthOrWizardModal();
+        });
+    }
+
     document.getElementById('sidebarToggle')?.addEventListener('click', () => {
         document.getElementById('sidebar').classList.toggle('collapsed');
         document.getElementById('appWrapper').classList.toggle('collapsed');
@@ -889,6 +909,8 @@ async function checkConfig() {
                 status.textContent = "ТРЕБУЕТСЯ АВТОРИЗАЦИЯ"; 
                 status.classList.add('unauth');
             }
+            // Вызываем мастер установки автоматически, если аккаунт не привязан
+            openAuthOrWizardModal();
         }
     } catch (e) { console.error("Ошибка проверки конфига:", e); }
 }
