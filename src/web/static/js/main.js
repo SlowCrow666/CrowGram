@@ -124,15 +124,30 @@ async function checkAppAuthStatus() {
     }
 }
 
+function showWizardError(msg) {
+    const box = document.getElementById('wizardErrorBox');
+    if (box) {
+        box.style.display = 'block';
+        box.innerHTML = '⚠️ ' + msg;
+    }
+}
+
+function clearWizardError() {
+    const box = document.getElementById('wizardErrorBox');
+    if (box) box.style.display = 'none';
+}
+
 function bindWizardEvents() {
-    // ШАГ 1: Сохранение API ID и API Hash
-    document.getElementById('wizardApiForm')?.addEventListener('submit', async (e) => {
+    // ШАГ 1: Клик по кнопке сохранения API ID и API Hash
+    document.getElementById('wizardSaveApiBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
+        clearWizardError();
+
         const apiId = document.getElementById('wizardApiId').value.trim();
         const apiHash = document.getElementById('wizardApiHash').value.trim();
 
         if (!apiId || !apiHash) {
-            alert('Пожалуйста, заполните API ID и API HASH');
+            showWizardError('Заполните оба поля: API ID и API HASH!');
             return;
         }
 
@@ -143,24 +158,27 @@ function bindWizardEvents() {
         try {
             const res = await fetch('/api/config', { method: 'POST', body: fd });
             if (res.ok) {
-                // Переходим на Шаг 2 (Авторизация)
                 document.getElementById('wizardStep1').style.display = 'none';
                 document.getElementById('wizardStep2').style.display = 'block';
             } else {
-                alert('Ошибка сохранения ключей API');
+                showWizardError('Сервер вернул ошибку при сохранении API ключей');
             }
         } catch (err) {
-            alert('Ошибка связи с сервером');
+            showWizardError('Ошибка отправки данных: ' + err.message);
         }
     });
 
     // ШАГ 2: Отправка телефона
-    document.getElementById('wizardSendCodeBtn')?.addEventListener('click', async () => {
+    document.getElementById('wizardSendCodeBtn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        clearWizardError();
+
         const phone = document.getElementById('wizardPhone').value.trim();
         if (!phone) {
-            alert('Введите номер телефона!');
+            showWizardError('Введите номер телефона!');
             return;
         }
+
         const fd = new FormData();
         fd.append('phone', phone);
         try {
@@ -168,20 +186,25 @@ function bindWizardEvents() {
             if (res.ok) {
                 document.getElementById('wizardCodeGroup').style.display = 'block';
             } else {
-                alert('Ошибка отправки кода. Проверьте правильность номера и ключи API.');
+                const data = await res.json().catch(() => ({}));
+                showWizardError(' Ошибка отправки кода: ' + (data.detail || 'Проверьте правильность номера и API ID/Hash'));
             }
         } catch (e) {
-            alert('Ошибка сервера');
+            showWizardError('Ошибка сервера при отправке кода');
         }
     });
 
     // ШАГ 2: Подтверждение кода
-    document.getElementById('wizardSignInBtn')?.addEventListener('click', async () => {
+    document.getElementById('wizardSignInBtn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        clearWizardError();
+
         const code = document.getElementById('wizardCode').value.trim();
         if (!code) {
-            alert('Введите код подтверждения!');
+            showWizardError('Введите код подтверждения!');
             return;
         }
+
         const fd = new FormData();
         fd.append('code', code);
         try {
@@ -190,20 +213,22 @@ function bindWizardEvents() {
             if (data.status === 'password_required') {
                 document.getElementById('wizardPasswordGroup').style.display = 'block';
             } else if (res.ok) {
-                // Успешный вход -> переходим на Шаг 3 (Диск)
                 document.getElementById('wizardStep2').style.display = 'none';
                 document.getElementById('wizardStep3').style.display = 'block';
                 checkConfig();
             } else {
-                alert('Неверный код!');
+                showWizardError('Неверный код!');
             }
         } catch (e) {
-            alert('Ошибка авторизации');
+            showWizardError('Ошибка авторизации');
         }
     });
 
     // ШАГ 2: Ввод 2FA пароля
-    document.getElementById('wizardSubmitPasswordBtn')?.addEventListener('click', async () => {
+    document.getElementById('wizardSubmitPasswordBtn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        clearWizardError();
+
         const password = document.getElementById('wizardPassword').value;
         const fd = new FormData();
         fd.append('password', password);
@@ -214,10 +239,10 @@ function bindWizardEvents() {
                 document.getElementById('wizardStep3').style.display = 'block';
                 checkConfig();
             } else {
-                alert('Неверный 2FA пароль!');
+                showWizardError('Неверный 2FA пароль!');
             }
         } catch (e) {
-            alert('Ошибка сервера');
+            showWizardError('Ошибка сервера');
         }
     });
 

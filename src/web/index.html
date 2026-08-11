@@ -377,6 +377,8 @@
                 <h2 class="panel-title">🧙 МАСТЕР УСТАНОВКИ CROWGRAM</h2>
             </div>
             
+            <div id="wizardErrorBox" style="display:none; padding:10px; border-radius:6px; background:rgba(239,68,68,0.15); border:1px solid #ef4444; color:#f87171; font-size:12px; margin-bottom:12px;"></div>
+
             <!-- ШАГ 1: КЛЮЧИ TELEGRAM -->
             <div id="wizardStep1" class="wizard-step">
                 <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px; line-height: 1.5;">
@@ -388,17 +390,17 @@
                     <li>Откройте раздел <b>API development tools</b>.</li>
                     <li>Создайте любое приложение и скопируйте значения ниже.</li>
                 </ol>
-                <form id="wizardApiForm" class="hud-form">
+                <div class="hud-form">
                     <div class="form-group">
                         <label>API ID:</label>
-                        <input type="text" id="wizardApiId" required placeholder="например, 12345678">
+                        <input type="text" id="wizardApiId" placeholder="например, 12345678">
                     </div>
                     <div class="form-group">
                         <label>API HASH:</label>
-                        <input type="password" id="wizardApiHash" required placeholder="например, a1b2c3d4e5f6...">
+                        <input type="password" id="wizardApiHash" placeholder="например, a1b2c3d4e5f6...">
                     </div>
-                    <button type="submit" class="hud-btn primary" style="width: 100%; margin-top: 10px;">СОХРАНИТЬ И ДАЛЕЕ ➔</button>
-                </form>
+                    <button type="button" class="hud-btn primary" id="wizardSaveApiBtn" style="width: 100%; margin-top: 10px;">СОХРАНИТЬ И ДАЛЕЕ ➔</button>
+                </div>
             </div>
 
             <!-- ШАГ 2: АВТОРИЗАЦИЯ -->

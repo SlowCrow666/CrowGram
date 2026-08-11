@@ -2,6 +2,8 @@ name: Build CrowGram Multiplatform Releases
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -76,30 +78,16 @@ jobs:
           pyinstaller --noconfirm --onedir --windowed --name "CrowGram" --add-data "src:src" --add-data "plugins:plugins" --add-data "themes:themes" desktop_app.py
           cd dist && tar -czvf CrowGram-macOS-x64.tar.gz CrowGram/
 
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.asset_path }}
+
       - name: Upload Release Assets
-        uses: actions/github-script@v7
+        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-            const tag = context.ref.replace('refs/tags/', '');
-            
-            const { data: release } = await github.rest.repos.getReleaseByTag({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag: tag
-            });
-
-            const filePath = '${{ matrix.asset_path }}';
-            const fileName = path.basename(filePath);
-            const fileData = fs.readFileSync(filePath);
-
-            await github.rest.repos.uploadReleaseAsset({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: release.id,
-              name: fileName,
-              data: fileData
-            });
+          files: ${{ matrix.asset_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
