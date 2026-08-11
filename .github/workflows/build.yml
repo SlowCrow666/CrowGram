@@ -63,13 +63,13 @@ jobs:
       - name: Build Executable (Windows)
         if: runner.os == 'Windows'
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "CrowGram" --add-data "src;src" --add-data "plugins;plugins" --add-data "themes;themes" desktop_app.py
+          pyinstaller --noconfirm --onedir --console --name "CrowGram" --add-data "src;src" --add-data "plugins;plugins" --add-data "themes;themes" desktop_app.py
           Compress-Archive -Path dist/CrowGram/* -DestinationPath dist/CrowGram-Windows-x64.zip
 
       - name: Build Executable (Linux)
         if: runner.os == 'Linux'
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "CrowGram" --add-data "src:src" --add-data "plugins:plugins" --add-data "themes:themes" desktop_app.py
+          pyinstaller --noconfirm --onedir --console --name "CrowGram" --add-data "src:src" --add-data "plugins:plugins" --add-data "themes:themes" desktop_app.py
           cd dist && tar -czvf CrowGram-Linux-x64.tar.gz CrowGram/
 
       - name: Build Executable (macOS)
