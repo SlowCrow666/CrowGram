@@ -8,127 +8,6 @@
     <link id="themeStylesheet" rel="stylesheet" href="/themes/default/theme.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="/static/js/artplayer.js"></script>
-    <style>
-        .plugin-bottom-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            z-index: 1000;
-            background: rgba(15, 23, 42, 0.95);
-            backdrop-filter: blur(10px);
-            border-top: 1px solid var(--border-color);
-            transition: transform 0.3s ease;
-        }
-        .plugin-card {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .plugin-card-info {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .plugin-card-title {
-            font-size: 13px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .plugin-card-desc {
-            font-size: 11px;
-            color: #8892b0;
-        }
-        .plugin-card-actions {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .commander-container {
-            display: flex;
-            gap: 10px;
-            height: calc(100vh - 160px);
-            margin-top: 10px;
-        }
-        .commander-panel {
-            flex: 1;
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        .commander-header {
-            padding: 8px 12px;
-            background: rgba(255, 255, 255, 0.03);
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-        .commander-path {
-            font-size: 11px;
-            color: #8892b0;
-            padding: 4px 8px;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 4px;
-            flex-grow: 1;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .commander-list {
-            flex-grow: 1;
-            overflow-y: auto;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-        }
-        .commander-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 6px 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.02);
-            cursor: pointer;
-            user-select: none;
-        }
-        .commander-row:hover {
-            background: rgba(46, 196, 182, 0.1);
-        }
-        .commander-row.selected {
-            background: rgba(0, 119, 182, 0.3);
-            color: #fff;
-        }
-        .commander-footer-keys {
-            display: flex;
-            gap: 4px;
-            padding: 8px;
-            background: rgba(0, 0, 0, 0.4);
-            border-top: 1px solid var(--border-color);
-        }
-        .commander-key-btn {
-            flex: 1;
-            padding: 6px;
-            font-size: 11px;
-            font-weight: 600;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-color);
-            color: #ccd6f6;
-            border-radius: 4px;
-            cursor: pointer;
-            text-align: center;
-        }
-        .commander-key-btn:hover {
-            background: var(--accent-blue);
-            color: #fff;
-        }
-    </style>
 </head>
 <body>
     <div class="modal-overlay" id="appLockModal" style="display: none; z-index: 4000; background: rgba(11, 13, 16, 0.98);">
@@ -136,16 +15,13 @@
             <div style="font-size: 48px; margin-bottom: 10px;">🔐</div>
             <h2 class="panel-title" style="margin-bottom: 6px;">ДОСТУП ОГРАНИЧЕН</h2>
             <p style="font-size: 12px; color: #8892b0; margin-bottom: 20px;">Введите пароль приложения для продолжения работы</p>
-
             <form id="appLockForm" class="hud-form">
                 <div class="form-group">
                     <input type="password" id="appLockPassword" placeholder="Введите пароль..." required style="text-align: center; font-size: 16px; letter-spacing: 2px;">
                 </div>
                 <button type="submit" class="hud-btn primary" style="width: 100%; margin-top: 10px; padding: 10px;">РАЗБЛОКИРОВАТЬ</button>
             </form>
-
             <button type="button" id="forgotPasswordBtn" style="background: none; border: none; color: var(--accent-blue); font-size: 11px; cursor: pointer; margin-top: 15px; text-decoration: underline;">Забыли пароль?</button>
-
             <div id="recoveryStatusBox" style="display: none; margin-top: 15px; font-size: 11px; padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.05); text-align: left;"></div>
         </div>
     </div>
@@ -158,213 +34,60 @@
                         <path d="M3 12h18M3 6h18M3 18h18"/>
                     </svg>
                 </button>
-                <span class="tooltip" id="sidebarTooltip">Свернуть меню</span>
             </div>
-            <h2 class="sidebar-logo">
-                <div class="crow-logo-icon">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"/>
-                    </svg>
-                </div>
-                <span>CROWGRAM</span>
-            </h2>
+            <h2 class="sidebar-logo"><span>CROWGRAM</span></h2>
         </div>
         
         <nav class="sidebar-nav">
-            <a href="#" class="nav-link active" id="navDriveBtn" data-tooltip="Оглавление">
-                <span class="nav-icon">📁</span>
-                <span class="nav-text">Оглавление</span>
-            </a>
-            <a href="#" class="nav-link" id="navTrashBtn" data-tooltip="Корзина">
-                <span class="nav-icon">🗑</span>
-                <span class="nav-text">Корзина</span>
-            </a>
-
-            <a href="#" class="nav-link" id="navCommanderBtn" data-tooltip="CrowCommander">
-                <span class="nav-icon">⚔️</span>
-                <span class="nav-text">CrowCommander</span>
-            </a>
-            
+            <a href="#" class="nav-link active" id="navDriveBtn"><span class="nav-icon">📁</span><span class="nav-text">Оглавление</span></a>
+            <a href="#" class="nav-link" id="navTrashBtn"><span class="nav-icon">🗑</span><span class="nav-text">Корзина</span></a>
+            <a href="#" class="nav-link" id="navCommanderBtn"><span class="nav-icon">⚔️</span><span class="nav-text">CrowCommander</span></a>
             <div class="nav-divider"></div>
-
-            <div style="padding: 10px 20px; font-size: 11px; font-weight: 600; color: #8892b0; letter-spacing: 1px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="padding: 10px 20px; font-size: 11px; font-weight: 600; color: #8892b0; display: flex; justify-content: space-between;">
                 <span>ДИСКИ</span>
-                <button id="openDriveModalBtn" style="background: none; border: none; color: var(--accent-blue); cursor: pointer; font-size: 18px; line-height: 1;">+</button>
+                <button id="openDriveModalBtn" style="background: none; border: none; color: var(--accent-blue); cursor: pointer; font-size: 18px;">+</button>
             </div>
             <div id="drivesList"></div>
-            
             <div class="nav-divider"></div>
-
-            <a href="#" class="nav-link" id="navPluginsBtn" data-tooltip="Плагины">
-                <span class="nav-icon">🧩</span>
-                <span class="nav-text">Плагины</span>
-            </a>
-            
-            <a href="#" class="nav-link" id="navSettingsBtn" data-tooltip="Настройки">
-                <span class="nav-icon">⚙️</span>
-                <span class="nav-text">Настройки</span>
-            </a>
+            <a href="#" class="nav-link" id="navPluginsBtn"><span class="nav-icon">🧩</span><span class="nav-text">Плагины</span></a>
+            <a href="#" class="nav-link" id="navSettingsBtn"><span class="nav-icon">⚙️</span><span class="nav-text">Настройки</span></a>
         </nav>
-
-        <div class="sidebar-footer">
-            <div class="stats-widget-mini">
-                <div class="stats-info">
-                    <span class="stats-title">ЗАНЯТО МЕСТА</span>
-                    <span class="stats-value" id="statsSize">0 MB</span>
-                </div>
-                <div class="stats-details">
-                    <span>Файлы: <b id="statsFiles">0</b></span>
-                    <span>Папки: <b id="statsFolders">0</b></span>
-                </div>
-            </div>
-        </div>
     </aside>
 
     <div class="app-wrapper" id="appWrapper">
         <div class="hud-container">
             <header class="hud-header">
-                <div class="header-left">
-                    <h1 class="hud-title" id="panelHeaderTitle">CROWGRAM CLOUD</h1>
-                </div>
+                <div class="header-left"><h1 class="hud-title">CROWGRAM CLOUD</h1></div>
                 <div class="hud-controls">
-                    <select id="themeSwitcher" class="hud-select" style="margin-right: 8px;">
-                        <option value="default">🎨 Тема: Сloud Dark</option>
-                        <option value="telegram_dark">🎨 Тема: TG Dark</option>
-                        <option value="macos_light">🎨 Тема: Mac Light</option>
-                    </select>
-
-                    <span class="status-badge" id="systemStatus" data-i18n="status_ready">СИСТЕМА ГОТОВА</span>
-                    <select id="langSwitcher" class="lang-select">
-                        <option value="ru">RU</option>
-                        <option value="en">EN</option>
-                    </select>
+                    <span class="status-badge" id="systemStatus">СИСТЕМА ГОТОВА</span>
                 </div>
             </header>
 
             <main class="hud-main">
                 <div class="drop-zone" id="dropZone">
-                    <div class="drop-zone-content">
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-                        </svg>
-                        <p data-i18n="upload_zone">ПЕРЕТАЩИТЕ ФАЙЛЫ ИЛИ ПАПКИ ДЛЯ ЗАГРУЗКИ В ГНЕЗДО</p>
-                    </div>
+                    <p>ПЕРЕТАЩИТЕ ФАЙЛЫ ДЛЯ ЗАГРУЗКИ</p>
                     <input type="file" id="fileInput" hidden multiple>
                 </div>
-
                 <div class="panel">
-                    <div class="table-toolbar">
-                        <div class="breadcrumbs" id="breadcrumbs"></div>
-
-                        <div class="toolbar-controls">
-                            <button class="hud-btn primary" id="pasteBtn" style="display: none; background-color: var(--accent-green, #2ec4b6);">📋 Вставить сюда</button>
-                            <select id="viewSwitcher" class="hud-select" style="margin-right: 12px; border-color: var(--accent-blue);">
-                                <option value="table">📑 Таблица</option>
-                                <option value="grid_large">🔲 Крупные значки</option>
-                                <option value="grid_small">🔳 Мелкие значки</option>
-                            </select>
-                            <input type="text" id="searchInput" class="hud-input" placeholder="Поиск файлов...">
-                            <select id="sortSelect" class="hud-select">
-                                <option value="date_desc">Сначала новые</option>
-                                <option value="date_asc">Сначала старые</option>
-                                <option value="name_asc">Имя (А-Я)</option>
-                                <option value="name_desc">Имя (Я-А)</option>
-                                <option value="size_desc">Размер (Крупные)</option>
-                                <option value="size_asc">Размер (Мелкие)</option>
-                            </select>
-                            <button class="hud-btn primary" id="createFolderBtn">+ Новая папка</button>
-                            <button class="hud-btn danger" id="emptyTrashBtn" style="display: none;">🗑 Очистить корзину</button>
-                        </div>
-                    </div>
-
-                    <div class="panel-header" id="batchPanelContainer" style="display: none;">
-                        <div class="batch-panel" id="batchPanel">
-                            <span class="batch-count" id="batchCount">Выбрано: 0</span>
-                            <button class="hud-btn primary" id="downloadFilesBtn">📄 Скачать файлами</button>
-                            <button class="hud-btn primary" id="downloadZipBtn">📦 Скачать ZIP</button>
-                            <button class="hud-btn primary" id="moveBatchBtn" style="background-color: var(--accent-blue);">📋 Перенести</button>
-                            <button class="hud-btn danger" id="deleteBatchBtn">🗑 В корзину</button>
-                        </div>
-                    </div>
-
-                    <div class="table-responsive" id="tableViewContainer">
+                    <div class="table-responsive">
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th style="width: 30px;"><input type="checkbox" id="selectAllCheckbox" class="hud-checkbox"></th>
-                                    <th style="width: 30px;">⭐</th>
-                                    <th data-i18n="col_name">ИМЯ</th>
-                                    <th data-i18n="col_size">РАЗМЕР</th>
-                                    <th data-i18n="col_date">ДАТА</th>
-                                    <th style="text-align: right;" data-i18n="col_actions">ДЕЙСТВИЯ</th>
+                                    <th><input type="checkbox" id="selectAllCheckbox"></th>
+                                    <th>ИМЯ</th>
+                                    <th>РАЗМЕР</th>
+                                    <th>ДАТА</th>
                                 </tr>
                             </thead>
                             <tbody id="fileList"></tbody>
                         </table>
                     </div>
-
-                    <div class="file-grid" id="gridViewContainer" style="display: none;"></div>
                 </div>
             </main>
         </div>
-        <div id="plugin-mounts"></div>
     </div>
 
-    <!-- МОДАЛЬНОЕ ОКНО CROWCOMMANDER -->
-    <div class="modal-overlay" id="commanderModal" style="display: none; z-index: 2300;">
-        <div class="modal-panel" style="max-width: 1200px; width: 95vw; height: 90vh;">
-            <div class="modal-header">
-                <h2 class="panel-title">⚔️ CROWCOMMANDER — ДВУХПАНЕЛЬНЫЙ МЕНЕДЖЕР</h2>
-                <button class="close-btn" id="closeCommanderBtn">&times;</button>
-            </div>
-
-            <div class="commander-container">
-                <div class="commander-panel" id="leftPanelContainer">
-                    <div class="commander-header">
-                        <select id="leftSourceSelect" class="hud-select" style="max-width: 180px;"></select>
-                        <div class="commander-path" id="leftPathLabel">/</div>
-                    </div>
-                    <div class="commander-list" id="leftPanelList"></div>
-                </div>
-
-                <div class="commander-panel" id="rightPanelContainer">
-                    <div class="commander-header">
-                        <select id="rightSourceSelect" class="hud-select" style="max-width: 180px;"></select>
-                        <div class="commander-path" id="rightPathLabel">/</div>
-                    </div>
-                    <div class="commander-list" id="rightPanelList"></div>
-                </div>
-            </div>
-
-            <div class="commander-footer-keys">
-                <div class="commander-key-btn" id="cmdBtnF3">F3 Просмотр</div>
-                <div class="commander-key-btn" id="cmdBtnF5">F5 Копировать ➔</div>
-                <div class="commander-key-btn" id="cmdBtnF7">F7 Нов. папка</div>
-                <div class="commander-key-btn" id="cmdBtnF8">F8 Удалить</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- МОДАЛЬНОЕ ОКНО УПРАВЛЕНИЯ ПЛАГИНАМИ -->
-    <div class="modal-overlay" id="pluginsModal" style="display: none; z-index: 2400;">
-        <div class="modal-panel" style="max-width: 580px; width: 100%;">
-            <div class="modal-header">
-                <h2 class="panel-title">🧩 МЕНЕДЖЕР ПЛАГИНОВ</h2>
-                <button class="close-btn" id="closePluginsBtn">&times;</button>
-            </div>
-            
-            <div style="background: rgba(255,255,255,0.03); border: 2px dashed var(--border-color); border-radius: 8px; padding: 15px; text-align: center; margin-bottom: 15px; cursor: pointer;" id="pluginDropZone">
-                <span style="font-size: 24px;">📦</span>
-                <p style="font-size: 12px; color: #8892b0; margin-top: 5px;">Нажмите или перетащите <b>ZIP-архив</b> плагина сюда для установки</p>
-                <input type="file" id="pluginZipInput" accept=".zip" hidden>
-            </div>
-
-            <h3 style="font-size: 12px; color: var(--accent-blue); letter-spacing: 1px; margin-bottom: 10px;">УСТАНОВЛЕННЫЕ ПЛАГИНЫ</h3>
-            <div id="pluginManagerList" style="max-height: 300px; overflow-y: auto;"></div>
-        </div>
-    </div>
-
-    <!-- МАСТЕР ПЕРВОНАЧАЛЬНОЙ НАСТРОЙКИ (SETUP WIZARD) -->
+    <!-- МАСТЕР НАСТРОЙКИ С КНОПКАМИ НАЗАД -->
     <div class="modal-overlay" id="wizardModal" style="display: none; z-index: 3000;">
         <div class="modal-panel" style="max-width: 520px; width: 100%;">
             <div class="modal-header">
@@ -373,35 +96,25 @@
             
             <div id="wizardErrorBox" style="display:none; padding:10px; border-radius:6px; background:rgba(239,68,68,0.15); border:1px solid #ef4444; color:#f87171; font-size:12px; margin-bottom:12px;"></div>
 
-            <!-- ШАГ 1: КЛЮЧИ TELEGRAM -->
+            <!-- ШАГ 1 -->
             <div id="wizardStep1" class="wizard-step">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px; line-height: 1.5;">
-                    Для работы хранилища требуются ключи <b>API ID</b> и <b>API Hash</b>.<br>
-                    Получить их можно за 1 минуту на официальном сайте Telegram:
-                </p>
-                <ol style="font-size: 12px; color: #ccd6f6; margin-bottom: 15px; padding-left: 20px; line-height: 1.6;">
-                    <li>Перейдите на <a href="https://my.telegram.org" target="_blank" style="color: var(--accent-blue);">my.telegram.org</a> и авторизуйтесь.</li>
-                    <li>Откройте раздел <b>API development tools</b>.</li>
-                    <li>Создайте любое приложение и скопируйте значения ниже.</li>
-                </ol>
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px;">Введите ключи API с сайта my.telegram.org:</p>
                 <div class="hud-form">
                     <div class="form-group">
                         <label>API ID:</label>
-                        <input type="text" id="wizardApiId" placeholder="например, 12345678">
+                        <input type="text" id="wizardApiId" placeholder="12345678">
                     </div>
                     <div class="form-group">
                         <label>API HASH:</label>
-                        <input type="password" id="wizardApiHash" placeholder="например, a1b2c3d4e5f6...">
+                        <input type="password" id="wizardApiHash" placeholder="a1b2c3d4e5f6...">
                     </div>
                     <button type="button" class="hud-btn primary" id="wizardSaveApiBtn" style="width: 100%; margin-top: 10px;">СОХРАНИТЬ И ДАЛЕЕ ➔</button>
                 </div>
             </div>
 
-            <!-- ШАГ 2: АВТОРИЗАЦИЯ -->
+            <!-- ШАГ 2 -->
             <div id="wizardStep2" class="wizard-step" style="display: none;">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">
-                    Введите номер телефона вашего Telegram-аккаунта для подключения:
-                </p>
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Введите номер телефона Telegram-аккаунта:</p>
                 <div class="hud-form">
                     <div class="form-group">
                         <label>НОМЕР ТЕЛЕФОНА:</label>
@@ -420,265 +133,8 @@
                         <button type="button" class="hud-btn primary" id="wizardSubmitPasswordBtn" style="width: 100%; margin-top: 8px;">ВОЙТИ</button>
                     </div>
                 </div>
-                <button type="button" class="hud-btn wizard-back-btn" data-back-step="1" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.05);">⬅ НАЗАД К КЛЮЧАМ API</button>
-            </div>
-
-            <!-- ШАГ 3: ПЕРВЫЙ ДИСК / СИНХРОНИЗАЦИЯ -->
-            <div id="wizardStep3" class="wizard-step" style="display: none;">
-                <div id="wizardSyncFoundBox" style="display: none; background: rgba(46, 196, 182, 0.1); border: 1px solid var(--accent-green, #2ec4b6); padding: 12px; border-radius: 6px; margin-bottom: 15px;">
-                    <p style="font-size: 13px; color: #2ec4b6; margin: 0; font-weight: 600;">🎉 Найдена существующая база в Telegram!</p>
-                    <p style="font-size: 11px; color: #ccd6f6; margin: 5px 0 10px 0;">Вы можете восстановить свои диски и структуру файлов в 1 клик.</p>
-                    <button type="button" class="hud-btn primary" id="wizardRestoreBtn" style="width: 100%; background: var(--accent-green, #2ec4b6);">📥 ВОССТАНОВИТЬ ИЗ ТЕЛЕГРАМ</button>
-                </div>
-
-                <hr id="wizardSyncDivider" class="hud-divider" style="display: none;">
-
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px;">
-                    Создайте ваш первый виртуальный диск для хранения файлов:
-                </p>
-                <form id="wizardDriveForm" class="hud-form">
-                    <div class="form-group">
-                        <label>БУКВА И НАЗВАНИЕ:</label>
-                        <div style="display: flex; gap: 8px;">
-                            <input type="text" id="wizardDriveLetter" required maxlength="1" value="C" style="width: 50px; text-align: center;">
-                            <input type="text" id="wizardDriveLabel" required value="Основной" placeholder="Название">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label style="display: flex; align-items: center; gap: 8px;">
-                            <input type="radio" name="wizardDriveAction" value="create_new" checked> Создать новый приватный канал
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
-                            <input type="radio" name="wizardDriveAction" value="link_existing"> Выбрать из существующих
-                        </label>
-                    </div>
-                    <div class="form-group" id="wizardBlockCreateNew">
-                        <label>НАЗВАНИЕ КАНАЛА:</label>
-                        <input type="text" id="wizardNewChannelTitle" value="CrowGram Drive: C">
-                    </div>
-                    <div class="form-group" id="wizardBlockLinkExisting" style="display: none;">
-                        <label>ВЫБЕРИТЕ КАНАЛ:</label>
-                        <select id="wizardExistingChannelSelect" class="hud-select">
-                            <option>Загрузка каналов...</option>
-                        </select>
-                    </div>
-                    <button type="submit" class="hud-btn primary" style="width: 100%; margin-top: 10px;">ДАЛЕЕ ➔ К НАСТРОЙКЕ ПАРОЛЯ</button>
-                </form>
-                <button type="button" class="hud-btn wizard-back-btn" data-back-step="2" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.05);">⬅ НАЗАД К АВТОРИЗАЦИИ</button>
-            </div>
-
-            <!-- ШАГ 4: ЗАЩИТА ПАРОЛЕМ ПРИЛОЖЕНИЯ (ОПЦИОНАЛЬНО) -->
-            <div id="wizardStep4" class="wizard-step" style="display: none;">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px; line-height: 1.5;">
-                    Вы можете установить <b>Пароль Входа</b> для защиты веб-интерфейса CrowGram:
-                </p>
-
-                <form id="wizardPasswordSetupForm" class="hud-form">
-                    <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
-                        <span style="font-size: 12px; font-weight: 600;">Защитить вход паролем:</span>
-                        <input type="checkbox" id="wizardEnablePassToggle" style="width: 18px; height: 18px; cursor: pointer;">
-                    </div>
-
-                    <div id="wizardPassFieldsBlock" style="display: none; margin-top: 10px; gap: 12px; flex-direction: column;">
-                        <div class="form-group">
-                            <label>ПАРОЛЬ:</label>
-                            <input type="password" id="wizardAppPassword" placeholder="Придумайте пароль">
-                        </div>
-                        <div class="form-group">
-                            <label>ПОДТВЕРЖДЕНИЕ ПАРОЛЯ:</label>
-                            <input type="password" id="wizardAppPasswordConfirm" placeholder="Повторите пароль">
-                        </div>
-
-                        <hr class="hud-divider" style="margin: 8px 0;">
-                        <span style="font-size: 11px; color: var(--accent-blue); font-weight: 600;">СПОСОБЫ ВОССТАНОВЛЕНИЯ:</span>
-
-                        <div class="form-group">
-                            <label>ПОДСКАЗКА ДЛЯ ПАРОЛЯ:</label>
-                            <input type="text" id="wizardPassHint" placeholder="напр., Имя первого питомца">
-                        </div>
-                        <div class="form-group">
-                            <label>EMAIL ДЛЯ ВОССТАНОВЛЕНИЯ (опционально):</label>
-                            <input type="email" id="wizardPassEmail" placeholder="your@email.com">
-                        </div>
-                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
-                            <input type="checkbox" id="wizardSendPassToTg" checked style="width: 16px; height: 16px;">
-                            <label style="margin: 0; cursor: pointer;">Отправить бэкап пароля в Telegram (Избранное)</label>
-                        </div>
-                    </div>
-
-                    <button type="submit" class="hud-btn primary" style="width: 100%; margin-top: 15px;">🚀 ЗАВЕРШИТЬ И ЗАПУСТИТЬ</button>
-                </form>
-                <button type="button" class="hud-btn wizard-back-btn" data-back-step="3" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.05);">⬅ НАЗАД К СОЗДАНИЮ ДИСКА</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ / РЕДАКТИРОВАНИЯ ДИСКА -->
-    <div class="modal-overlay" id="driveModal" style="display: none; z-index: 2500;">
-        <div class="modal-panel">
-            <div class="modal-header">
-                <h2 class="panel-title" id="driveModalTitle">ДОБАВИТЬ ДИСК</h2>
-                <button class="close-btn" id="closeDriveBtn">&times;</button>
-            </div>
-            <form id="driveForm" class="hud-form">
-                <input type="hidden" id="editDriveId">
-                <input type="hidden" id="driveIconInput" value="💽">
-                
-                <div class="form-group">
-                    <label>ВЫБЕРИТЕ ИКОНКУ:</label>
-                    <div class="icon-presets" id="iconPresetsContainer" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;">
-                        <button type="button" class="icon-preset-btn active" data-icon="💽" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--accent-blue); border-radius: 6px; cursor: pointer;">💽</button>
-                        <button type="button" class="icon-preset-btn" data-icon="🎬" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🎬</button>
-                        <button type="button" class="icon-preset-btn" data-icon="🖼️" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🖼️</button>
-                        <button type="button" class="icon-preset-btn" data-icon="💼" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">💼</button>
-                        <button type="button" class="icon-preset-btn" data-icon="🎮" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🎮</button>
-                        <button type="button" class="icon-preset-btn" data-icon="📚" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">📚</button>
-                        <button type="button" class="icon-preset-btn" data-icon="🔐" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🔐</button>
-                        <button type="button" class="icon-preset-btn" data-icon="🎵" style="font-size: 20px; padding: 6px 10px; background: rgba(255,255,255,0.05); border: 1px solid transparent; border-radius: 6px; cursor: pointer;">🎵</button>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>БУКВА ДИСКА (напр. D):</label>
-                    <input type="text" id="driveLetterInput" required maxlength="1" placeholder="D">
-                </div>
-                <div class="form-group">
-                    <label>НАЗВАНИЕ (Метка):</label>
-                    <input type="text" id="driveLabelInput" required placeholder="Медиа">
-                </div>
-                <div class="form-group" id="driveActionGroup">
-                    <label style="display: flex; align-items: center; gap: 8px;">
-                        <input type="radio" name="driveAction" value="create_new" checked> Создать новый канал
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
-                        <input type="radio" name="driveAction" value="link_existing"> Выбрать существующий
-                    </label>
-                </div>
-                <div class="form-group" id="blockCreateNew">
-                    <label>НАЗВАНИЕ НОВОГО КАНАЛА:</label>
-                    <input type="text" id="newChannelTitle" placeholder="CrowGram Drive: Медиа">
-                </div>
-                <div class="form-group" id="blockLinkExisting" style="display: none;">
-                    <label>ВЫБЕРИТЕ КАНАЛ:</label>
-                    <select id="existingChannelSelect" class="hud-select">
-                        <option>Загрузка каналов...</option>
-                    </select>
-                </div>
-                <div style="display: flex; gap: 10px; margin-top: 15px;">
-                    <button type="submit" class="hud-btn primary" style="flex: 1;">СОХРАНИТЬ</button>
-                    <button type="button" class="hud-btn danger" id="deleteDriveBtn" style="display: none; flex: 1;">УДАЛИТЬ ДИСК</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="previewModal" style="display: none; z-index: 2000;">
-        <div class="preview-panel">
-            <div class="modal-header">
-                <h2 class="panel-title" id="previewTitle">Предпросмотр</h2>
-                <button class="close-btn" id="closePreviewBtn">&times;</button>
-            </div>
-            <div class="preview-content" id="previewContent"></div>
-        </div>
-    </div>
-
-    <div class="upload-queue-widget" id="queueWidget" style="display: none;">
-        <div class="queue-header" id="queueHeader">
-            <span class="queue-title">Загрузка файлов (<span id="queueProgressCount">0/0</span>)</span>
-            <div>
-                <button class="queue-toggle-btn" id="queueClearBtn" title="Очистить завершенные" style="margin-right: 8px;">✖</button>
-                <button class="queue-toggle-btn" id="queueToggleBtn" title="Свернуть/Развернуть">−</button>
-            </div>
-        </div>
-        <div class="queue-body" id="queueBody"></div>
-    </div>
-
-    <!-- ОКНО НАСТРОЕК -->
-    <div class="modal-overlay" id="settingsModal" style="display: none;">
-        <div class="modal-panel">
-            <div class="modal-header">
-                <h2 class="panel-title" data-i18n="settings_title">НАСТРОЙКИ ПОДКЛЮЧЕНИЯ</h2>
-                <button class="close-btn" id="closeSettingsBtn">&times;</button>
-            </div>
-            <form id="settingsForm" class="hud-form">
-                <div class="form-group">
-                    <label>API ID:</label>
-                    <input type="text" id="apiIdInput" required placeholder="12345678">
-                </div>
-                <div class="form-group">
-                    <label>API HASH:</label>
-                    <input type="password" id="apiHashInput" required placeholder="abcdef123456...">
-                </div>
-                <div class="form-group">
-                    <label>РАЗМЕР ЧАНКА НАРЕЗКИ:</label>
-                    <select id="chunkSizeInput" class="hud-select">
-                        <option value="20971520">20 MB</option>
-                        <option value="52428800" selected>50 MB</option>
-                        <option value="104857600">100 MB</option>
-                        <option value="524288000">500 MB</option>
-                        <option value="2000000000">1.9 GB</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>МАКС. ОДНОВРЕМЕННЫХ ЗАГРУЗОК:</label>
-                    <select id="maxConcurrentUploadsInput" class="hud-select">
-                        <option value="1">1 файл</option>
-                        <option value="2">2 файла</option>
-                        <option value="3" selected>3 файла (Дефолт)</option>
-                        <option value="5">5 файлов</option>
-                        <option value="8">8 файлов</option>
-                    </select>
-                </div>
-                <button type="submit" class="hud-btn primary" data-i18n="save">СОХРАНИТЬ</button>
-            </form>
-
-            <hr class="hud-divider">
-            <div class="auth-block">
-                <h3>ЗАЩИТА ПАРОЛЕМ ПРИЛОЖЕНИЯ</h3>
-                <form id="settingsAppPasswordForm" class="hud-form" style="margin-top: 10px;">
-                    <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
-                        <span style="font-size: 11px;">Включить пароль входа:</span>
-                        <input type="checkbox" id="settingsEnablePassToggle" style="width: 16px; height: 16px;">
-                    </div>
-                    <div id="settingsPassFieldsBlock" style="display: none; gap: 8px; flex-direction: column; margin-top: 8px;">
-                        <input type="password" id="settingsAppPassword" placeholder="Новый пароль" class="hud-input">
-                        <input type="password" id="settingsAppPasswordConfirm" placeholder="Повторите новый пароль" class="hud-input">
-                        <input type="text" id="settingsPassHint" placeholder="Подсказка для пароля" class="hud-input">
-                        <input type="email" id="settingsPassEmail" placeholder="Email для восстановления" class="hud-input">
-                    </div>
-                    <button type="submit" class="hud-btn primary" style="margin-top: 8px;">ОБНОВИТЬ ПАРОЛЬ ПРИЛОЖЕНИЯ</button>
-                </form>
-            </div>
-
-            <hr class="hud-divider">
-            <div class="auth-block">
-                <h3>СИНХРОНИЗАЦИЯ (ОБЛАКО)</h3>
-                <p style="font-size: 11px; color: #8892b0; margin-bottom: 10px;">Структура файлов и дисков сохраняется в вашем Избранном (Saved Messages).</p>
-                <div style="display: flex; gap: 10px;">
-                    <button type="button" class="hud-btn primary" id="pullSyncBtn" style="flex:1;">📥 Скачать из Telegram</button>
-                    <button type="button" class="hud-btn" id="pushSyncBtn" style="flex:1;">📤 Сохранить принудительно</button>
-                </div>
-            </div>
-
-            <hr class="hud-divider">
-            <div class="auth-block">
-                <h3>АВТОРИЗАЦИЯ АККАУНТА</h3>
-                <div class="form-group">
-                    <label>НОМЕР ТЕЛЕФОНА:</label>
-                    <input type="text" id="phoneInput" placeholder="+79991112233">
-                </div>
-                <button class="hud-btn" id="sendCodeBtn" data-i18n="send_code">ОТПРАВИТЬ КОД</button>
-
-                <div class="form-group" id="codeGroup" style="display:none; margin-top: 12px;">
-                    <label>КОД ИЗ TELEGRAM:</label>
-                    <input type="text" id="codeInput" placeholder="12345">
-                    <button class="hud-btn primary" id="signInBtn" style="margin-top: 8px;">ПОДТВЕРДИТЬ</button>
-                </div>
-                <div class="form-group" id="passwordGroup" style="display:none; margin-top: 12px;">
-                    <label>ОБЛАЧНЫЙ ПАРОЛЬ (2FA):</label>
-                    <input type="password" id="passwordInput">
-                    <button class="hud-btn primary" id="submitPasswordBtn" style="margin-top: 8px;">ВОЙТИ С ПАРОЛЕМ</button>
-                </div>
+                <!-- КНОПКА ВОЗВРАТА -->
+                <button type="button" id="wizardBackToStep1Btn" class="hud-btn" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.08);">⬅ НАЗАД К КЛЮЧАМ API</button>
             </div>
         </div>
     </div>
