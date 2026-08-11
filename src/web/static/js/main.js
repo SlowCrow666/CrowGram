@@ -112,6 +112,11 @@ function clearWizardError() {
     if (box) box.style.display = 'none';
 }
 
+function finishAuthAndOpenApp() {
+    document.getElementById('wizardModal').style.display = 'none';
+    window.location.reload();
+}
+
 function bindWizardEvents() {
     document.getElementById('wizardBackToStep1Btn')?.addEventListener('click', () => {
         clearWizardError();
@@ -217,9 +222,8 @@ function bindWizardEvents() {
 
             if (data.status === 'password_required') {
                 document.getElementById('wizardPasswordGroup').style.display = 'block';
-            } else if (res.ok) {
-                document.getElementById('wizardStep2').style.display = 'none';
-                document.getElementById('wizardStep3').style.display = 'block';
+            } else if (res.ok && data.status === 'success') {
+                finishAuthAndOpenApp();
             } else {
                 showWizardError(data.detail || 'Неверный код!');
             }
@@ -238,6 +242,11 @@ function bindWizardEvents() {
         const btn = document.getElementById('wizardSubmitPasswordBtn');
         const password = document.getElementById('wizardPassword').value;
 
+        if (!password) {
+            showWizardError('Введите 2FA пароль!');
+            return;
+        }
+
         btn.disabled = true;
         btn.textContent = 'ВХОД...';
 
@@ -246,11 +255,12 @@ function bindWizardEvents() {
 
         try {
             const res = await fetch('/api/auth/password', { method: 'POST', body: fd });
-            if (res.ok) {
-                document.getElementById('wizardStep2').style.display = 'none';
-                document.getElementById('wizardStep3').style.display = 'block';
+            const data = await res.json().catch(() => ({}));
+
+            if (res.ok && data.status === 'success') {
+                finishAuthAndOpenApp();
             } else {
-                showWizardError('Неверный 2FA пароль!');
+                showWizardError(data.detail || 'Неверный 2FA пароль!');
             }
         } catch (e) {
             showWizardError('Ошибка проверки пароля');
@@ -268,6 +278,8 @@ async function checkAppAuthStatus() {
             const cfg = await res.json();
             if (!cfg.is_authorized) {
                 document.getElementById('wizardModal').style.display = 'flex';
+            } else {
+                document.getElementById('wizardModal').style.display = 'none';
             }
         }
     } catch (e) {}
