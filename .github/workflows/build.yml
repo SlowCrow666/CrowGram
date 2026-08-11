@@ -1,0 +1,82 @@
+name: Build CrowGram Multiplatform Releases
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: CrowGram-Windows-x64.zip
+            asset_path: dist/CrowGram-Windows-x64.zip
+          - os: ubuntu-latest
+            artifact_name: CrowGram-Linux-x64.tar.gz
+            asset_path: dist/CrowGram-Linux-x64.tar.gz
+          - os: macos-latest
+            artifact_name: CrowGram-macOS-x64.tar.gz
+            asset_path: dist/CrowGram-macOS-x64.tar.gz
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller pywebview uvicorn fastapi pyrogram tglcrypto python-multipart
+        if (Test-Path requirements.txt) { pip install -r requirements.txt }
+
+    - name: Install Dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        python -m pip install --upgrade pip
+        sudo apt-get update
+        sudo apt-get install -y libgirepository1.0-dev gcc libcdata-dev libwebkit2gtk-4.0-dev
+        pip install pyinstaller pywebview uvicorn fastapi pyrogram tglcrypto python-multipart
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Install Dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller pywebview uvicorn fastapi pyrogram tglcrypto python-multipart
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Build Executable (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        pyinstaller --noconfirm --onedir --windowed --name "CrowGram" --add-data "src/web;src/web" --add-data "plugins;plugins" --add-data "themes;themes" desktop_app.py
+        Compress-Archive -Path dist/CrowGram/* -DestinationPath dist/CrowGram-Windows-x64.zip
+
+    - name: Build Executable (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        pyinstaller --noconfirm --onedir --windowed --name "CrowGram" --add-data "src/web:src/web" --add-data "plugins:plugins" --add-data "themes:themes" desktop_app.py
+        cd dist && tar -czvf CrowGram-Linux-x64.tar.gz CrowGram/
+
+    - name: Build Executable (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        pyinstaller --noconfirm --onedir --windowed --name "CrowGram" --add-data "src/web:src/web" --add-data "plugins:plugins" --add-data "themes:themes" desktop_app.py
+        cd dist && tar -czvf CrowGram-macOS-x64.tar.gz CrowGram/
+
+    - name: Upload Release Asset
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: ${{ matrix.asset_path }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

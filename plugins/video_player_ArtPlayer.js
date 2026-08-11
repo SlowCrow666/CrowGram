@@ -1,5 +1,5 @@
 /**
- * ArtPlayer Plugin v1.2 — Видеоплеер для CrowGram с индикатором кэширования Telegram
+ * ArtPlayer Plugin v2.0 — Исправление полноэкранного режима и прямого потока
  */
 
 (function() {
@@ -10,14 +10,14 @@
             api.addHook('onFileClick', (fileId, fileName, ext) => {
                 const videoExts = ['mp4', 'webm', 'mkv', 'mov', 'avi', 'wmv', 'flv', 'm4v', 'ts'];
                 if (videoExts.includes(ext.toLowerCase())) {
-                    this.openArtPlayer(fileId, fileName);
+                    this.openArtPlayer(fileId, fileName, ext.toLowerCase());
                     return true;
                 }
                 return false;
             });
         },
 
-        openArtPlayer: function(fileId, fileName) {
+        openArtPlayer: function(fileId, fileName, ext) {
             const previewTitle = document.getElementById('previewTitle');
             const previewContent = document.getElementById('previewContent');
             const previewModal = document.getElementById('previewModal');
@@ -28,12 +28,13 @@
             const streamUrl = `/api/stream/${fileId}`;
 
             previewContent.innerHTML = `
-                <div style="position: relative; width: 100%; height: 70vh;">
-                    <div id="artplayerContainer" style="width: 100%; height: 100%; border-radius: 8px; overflow: hidden;"></div>
-                    <div id="artBufferingWidget" style="position: absolute; top: 12px; left: 12px; z-index: 10; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); border: 1px solid var(--border-color, #333); padding: 6px 12px; border-radius: 6px; font-family: monospace; font-size: 11px; color: #00ffff; display: flex; align-items: center; gap: 8px;">
-                        <span>📥 Кэширование Telegram: <b id="artBufferingPercent">0%</b> (<span id="artBufferingMB">0/0 MB</span>)</span>
+                <div id="artplayerWrapper" style="position: relative; width: 100%; height: 70vh; background: #000; border-radius: 8px; overflow: hidden;">
+                    <div id="artplayerContainer" style="width: 100%; height: 100%;"></div>
+                    
+                    <div id="artBufferingWidget" style="position: absolute; top: 12px; left: 12px; z-index: 10; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); border: 1px solid var(--border-color, #333); padding: 6px 12px; border-radius: 6px; font-family: monospace; font-size: 11px; color: #00ffff; display: flex; align-items: center; gap: 8px;">
+                        <span>📥 Кэш Telegram: <b id="artBufferingPercent">0%</b> (<span id="artBufferingMB">0/0 MB</span>)</span>
                         <span style="color: #8892b0;">|</span>
-                        <span>⚡ Скорость: <b id="artBufferingSpeed">0.0 MB/s</b></span>
+                        <span>⚡ <b id="artBufferingSpeed">0.0 MB/s</b></span>
                     </div>
                 </div>
             `;
@@ -46,10 +47,10 @@
                 art = new window.Artplayer({
                     container: '#artplayerContainer',
                     url: streamUrl,
-                    type: 'mkv',
+                    type: 'mp4',
                     autoplay: true,
                     isLive: false,
-                    fullscreen: true,
+                    fullscreen: false,
                     fullscreenWeb: true,
                     pip: true,
                     setting: true,
@@ -60,21 +61,36 @@
                     controls: [
                         {
                             position: 'right',
-                            html: '🚀 Открыть в VLC',
-                            tooltip: 'Запустить потоковое вещание через сторонний плеер',
+                            html: '📺 Во весь экран',
                             click: function () {
-                                const vlcUrl = `vlc://${window.location.origin}${streamUrl}`;
-                                window.location.href = vlcUrl;
+                                const wrapper = document.getElementById('artplayerWrapper');
+                                if (wrapper) {
+                                    if (!document.fullscreenElement) {
+                                        wrapper.requestFullscreen().catch(err => console.error(err));
+                                    } else {
+                                        document.exitFullscreen().catch(err => console.error(err));
+                                    }
+                                }
                             },
                         },
                         {
                             position: 'right',
-                            html: '📥 Скачать',
+                            html: '📋 Ссылка для VLC',
+                            tooltip: 'Скопировать прямой URL потока для вставки в VLC (Ctrl+N)',
                             click: function () {
-                                const a = document.createElement('a');
-                                a.href = `/api/download/${fileId}`;
-                                a.download = fileName;
-                                a.click();
+                                const fullUrl = `${window.location.origin}${streamUrl}`;
+                                navigator.clipboard.writeText(fullUrl).then(() => {
+                                    alert(`Прямая ссылка скопирована!\n\nОткройте VLC -> Нажмите Ctrl+N -> Вставьте ссылку:\n${fullUrl}`);
+                                });
+                            },
+                        },
+                        {
+                            position: 'right',
+                            html: '🚀 M3U Плейлист',
+                            tooltip: 'Скачать .m3u плейлист для автоматического открытия в VLC',
+                            click: function () {
+                                const playlistUrl = `/api/stream/playlist/${fileId}.m3u`;
+                                window.location.href = playlistUrl;
                             },
                         }
                     ]
@@ -83,7 +99,6 @@
                 previewContent.innerHTML = `<video controls autoplay style="width:100%; max-height:70vh;"><source src="${streamUrl}"></video>`;
             }
 
-            // Поллинг прогресса скачивания чанков из Telegram
             const pollInterval = setInterval(async () => {
                 try {
                     const res = await fetch(`/api/stream/status/${fileId}?_t=` + Date.now());
@@ -103,14 +118,15 @@
                         if (widget) widget.style.display = 'none';
                         clearInterval(pollInterval);
                     }
-                } catch (e) {
-                    console.error('Ошибка получения статуса буфера', e);
-                }
+                } catch (e) {}
             }, 1000);
 
             const closeBtn = document.getElementById('closePreviewBtn');
             const handleClose = () => {
                 clearInterval(pollInterval);
+                if (document.fullscreenElement) {
+                    document.exitFullscreen().catch(() => {});
+                }
                 if (art) {
                     art.destroy();
                 }
