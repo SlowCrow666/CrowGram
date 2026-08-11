@@ -50,7 +50,6 @@
             gap: 8px;
         }
 
-        /* Стиль для двухпанельного менеджера CrowCommander */
         .commander-container {
             display: flex;
             gap: 10px;
@@ -132,7 +131,6 @@
     </style>
 </head>
 <body>
-    <!-- ЭКРАН БЛОКИРОВКИ ПАРОЛЕМ ПРИЛОЖЕНИЯ -->
     <div class="modal-overlay" id="appLockModal" style="display: none; z-index: 4000; background: rgba(11, 13, 16, 0.98);">
         <div class="modal-panel" style="max-width: 400px; text-align: center;">
             <div style="font-size: 48px; margin-bottom: 10px;">🔐</div>
@@ -309,7 +307,6 @@
                 </div>
             </main>
         </div>
-        <!-- Точка монтирования UI для плагинов -->
         <div id="plugin-mounts"></div>
     </div>
 
@@ -322,7 +319,6 @@
             </div>
 
             <div class="commander-container">
-                <!-- ЛЕВАЯ ПАНЕЛЬ -->
                 <div class="commander-panel" id="leftPanelContainer">
                     <div class="commander-header">
                         <select id="leftSourceSelect" class="hud-select" style="max-width: 180px;"></select>
@@ -331,7 +327,6 @@
                     <div class="commander-list" id="leftPanelList"></div>
                 </div>
 
-                <!-- ПРАВАЯ ПАНЕЛЬ -->
                 <div class="commander-panel" id="rightPanelContainer">
                     <div class="commander-header">
                         <select id="rightSourceSelect" class="hud-select" style="max-width: 180px;"></select>
@@ -341,7 +336,6 @@
                 </div>
             </div>
 
-            <!-- ПАНЕЛЬ ГОРЯЧИХ КЛАВИШ -->
             <div class="commander-footer-keys">
                 <div class="commander-key-btn" id="cmdBtnF3">F3 Просмотр</div>
                 <div class="commander-key-btn" id="cmdBtnF5">F5 Копировать ➔</div>
@@ -426,6 +420,7 @@
                         <button type="button" class="hud-btn primary" id="wizardSubmitPasswordBtn" style="width: 100%; margin-top: 8px;">ВОЙТИ</button>
                     </div>
                 </div>
+                <button type="button" class="hud-btn wizard-back-btn" data-back-step="1" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.05);">⬅ НАЗАД К КЛЮЧАМ API</button>
             </div>
 
             <!-- ШАГ 3: ПЕРВЫЙ ДИСК / СИНХРОНИЗАЦИЯ -->
@@ -469,6 +464,7 @@
                     </div>
                     <button type="submit" class="hud-btn primary" style="width: 100%; margin-top: 10px;">ДАЛЕЕ ➔ К НАСТРОЙКЕ ПАРОЛЯ</button>
                 </form>
+                <button type="button" class="hud-btn wizard-back-btn" data-back-step="2" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.05);">⬅ НАЗАД К АВТОРИЗАЦИИ</button>
             </div>
 
             <!-- ШАГ 4: ЗАЩИТА ПАРОЛЕМ ПРИЛОЖЕНИЯ (ОПЦИОНАЛЬНО) -->
@@ -512,6 +508,7 @@
 
                     <button type="submit" class="hud-btn primary" style="width: 100%; margin-top: 15px;">🚀 ЗАВЕРШИТЬ И ЗАПУСТИТЬ</button>
                 </form>
+                <button type="button" class="hud-btn wizard-back-btn" data-back-step="3" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.05);">⬅ НАЗАД К СОЗДАНИЮ ДИСКА</button>
             </div>
         </div>
     </div>

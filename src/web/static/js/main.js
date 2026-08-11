@@ -137,17 +137,37 @@ function clearWizardError() {
     if (box) box.style.display = 'none';
 }
 
+function wizardGoToStep(stepNum) {
+    clearWizardError();
+    document.querySelectorAll('.wizard-step').forEach(el => el.style.display = 'none');
+    const target = document.getElementById('wizardStep' + stepNum);
+    if (target) target.style.display = 'block';
+}
+
 function bindWizardEvents() {
-    // ШАГ 1: Клик по кнопке сохранения API ID и API Hash
+    // Кнопки НАЗАД
+    document.querySelectorAll('.wizard-back-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const backStep = e.currentTarget.getAttribute('data-back-step');
+            if (backStep) wizardGoToStep(backStep);
+        });
+    });
+
+    // ШАГ 1: Сохранение API ID и API Hash
     document.getElementById('wizardSaveApiBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
 
-        const apiId = document.getElementById('wizardApiId').value.trim();
-        const apiHash = document.getElementById('wizardApiHash').value.trim();
+        const apiId = document.getElementById('wizardApiId').value.trim().replace(/"/g, '').replace(/'/g, '');
+        const apiHash = document.getElementById('wizardApiHash').value.trim().replace(/"/g, '').replace(/'/g, '');
 
         if (!apiId || !apiHash) {
             showWizardError('Заполните оба поля: API ID и API HASH!');
+            return;
+        }
+
+        if (!/^\d+$/.test(apiId)) {
+            showWizardError('API ID должен состоять только из цифр (без букв и символов)!');
             return;
         }
 
@@ -158,10 +178,10 @@ function bindWizardEvents() {
         try {
             const res = await fetch('/api/config', { method: 'POST', body: fd });
             if (res.ok) {
-                document.getElementById('wizardStep1').style.display = 'none';
-                document.getElementById('wizardStep2').style.display = 'block';
+                wizardGoToStep(2);
             } else {
-                showWizardError('Сервер вернул ошибку при сохранении API ключей');
+                const errData = await res.json().catch(() => ({}));
+                showWizardError(errData.detail || 'Ошибка сохранения API ключей');
             }
         } catch (err) {
             showWizardError('Ошибка отправки данных: ' + err.message);
@@ -187,7 +207,7 @@ function bindWizardEvents() {
                 document.getElementById('wizardCodeGroup').style.display = 'block';
             } else {
                 const data = await res.json().catch(() => ({}));
-                showWizardError(' Ошибка отправки кода: ' + (data.detail || 'Проверьте правильность номера и API ID/Hash'));
+                showWizardError('Ошибка отправки кода: ' + (data.detail || 'Проверьте правильность номера и API ID/Hash'));
             }
         } catch (e) {
             showWizardError('Ошибка сервера при отправке кода');
@@ -213,8 +233,7 @@ function bindWizardEvents() {
             if (data.status === 'password_required') {
                 document.getElementById('wizardPasswordGroup').style.display = 'block';
             } else if (res.ok) {
-                document.getElementById('wizardStep2').style.display = 'none';
-                document.getElementById('wizardStep3').style.display = 'block';
+                wizardGoToStep(3);
                 checkConfig();
             } else {
                 showWizardError('Неверный код!');
@@ -235,8 +254,7 @@ function bindWizardEvents() {
         try {
             const res = await fetch('/api/auth/password', { method: 'POST', body: fd });
             if (res.ok) {
-                document.getElementById('wizardStep2').style.display = 'none';
-                document.getElementById('wizardStep3').style.display = 'block';
+                wizardGoToStep(3);
                 checkConfig();
             } else {
                 showWizardError('Неверный 2FA пароль!');
@@ -1009,8 +1027,7 @@ function bindSettingsAndAuthEvents() {
 
         await fetch('/api/drives', { method: 'POST', body: fd });
         
-        document.getElementById('wizardStep3').style.display = 'none';
-        document.getElementById('wizardStep4').style.display = 'block';
+        wizardGoToStep(4);
     });
 }
 

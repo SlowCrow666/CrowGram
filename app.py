@@ -105,10 +105,17 @@ async def api_set_config(
     chunk_size: str = Form(None), 
     max_concurrent_uploads: str = Form(None)
 ):
-    set_config("api_id", api_id.strip())
-    set_config("api_hash", api_hash.strip())
+    clean_api_id = api_id.strip().replace('"', '').replace("'", "")
+    clean_api_hash = api_hash.strip().replace('"', '').replace("'", "")
+    
+    if not clean_api_id.isdigit():
+        raise HTTPException(status_code=400, detail="API ID должен состоять только из цифр!")
+
+    set_config("api_id", clean_api_id)
+    set_config("api_hash", clean_api_hash)
     if chunk_size: set_config("chunk_size", chunk_size.strip())
     if max_concurrent_uploads: set_config("max_concurrent_uploads", max_concurrent_uploads.strip())
+    
     await tg_manager.init_client()
     return {"status": "success"}
 
