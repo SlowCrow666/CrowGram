@@ -3,49 +3,21 @@ let isAuthorized = false;
 let currentFolderId = 0;
 let currentDriveId = 1;
 let isTrashView = false;
-let currentViewMode = 'table'; 
 let allItems = [];
 let selectedFileIds = new Set();
-let pluginDefaultsMap = {};
 
 window.CrowAPI = {
     plugins: {},
-    hooks: { 
-        onFileClick: [], 
-        onAppReady: [],
-        renderContextMenu: [],
-        renderSidebarItem: [],
-        onFileUpload: [],
-        onFileDelete: []
-    },
-    
+    hooks: { onFileClick: [], onAppReady: [], renderContextMenu: [] },
     registerPlugin: function(name, plugin) {
         this.plugins[name] = plugin;
-        try {
-            if (plugin.init) plugin.init(this);
-        } catch (e) {}
-    },
-    
-    addHook: function(hookName, callback) {
-        if (this.hooks[hookName]) this.hooks[hookName].push(callback);
-    },
-    
-    emit: function(hookName, ...args) {
-        if (this.hooks[hookName]) {
-            let handled = false;
-            for (let cb of this.hooks[hookName]) {
-                try { 
-                    if (cb(...args) === true) handled = true; 
-                } catch (e) {}
-            }
-            return handled;
-        }
-        return false;
+        try { if (plugin.init) plugin.init(this); } catch (e) {}
     }
 };
 
 document.addEventListener('DOMContentLoaded', () => {
     bindWizardEvents();
+    bindGlobalEvents();
     checkAppAuthStatus();
 });
 
@@ -62,6 +34,18 @@ function clearWizardError() {
     if (box) box.style.display = 'none';
 }
 
+function finishAuthAndOpenApp() {
+    const modal = document.getElementById('wizardModal');
+    if (modal) modal.style.display = 'none';
+    initAppCore();
+}
+
+async function initAppCore() {
+    await loadDrives();
+    await loadFiles();
+    setupDragAndDrop();
+}
+
 async function loadDrives() {
     try {
         const res = await fetch('/api/drives');
@@ -70,7 +54,7 @@ async function loadDrives() {
             const container = document.getElementById('drivesList');
             if (container) {
                 container.innerHTML = drives.map(d => `
-                    <a href="#" class="nav-link ${d.id === currentDriveId ? 'active' : ''}" onclick="selectDrive(${d.id})">
+                    <a href="#" class="nav-link ${d.id === currentDriveId ? 'active' : ''}" onclick="selectDrive(${d.id}); return false;">
                         <span class="nav-icon">${d.icon || '💽'}</span>
                         <span class="nav-text">${d.letter}: ${d.label}</span>
                     </a>
@@ -82,7 +66,11 @@ async function loadDrives() {
 
 async function loadFiles() {
     try {
-        const res = await fetch(`/api/files?drive_id=${currentDriveId}&parent_id=${currentFolderId}`);
+        const endpoint = isTrashView 
+            ? '/api/files/trash' 
+            : `/api/files?drive_id=${currentDriveId}&parent_id=${currentFolderId}`;
+        
+        const res = await fetch(endpoint);
         if (res.ok) {
             const files = await res.json();
             allItems = files;
@@ -96,42 +84,111 @@ function renderFileList(items) {
     if (!tbody) return;
 
     if (!items || items.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #8892b0; padding: 20px;">Папка пуста</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #8892b0; padding: 30px;">Папка пуста. Перетащите сюда файлы для загрузки.</td></tr>`;
         return;
     }
 
     tbody.innerHTML = items.map(item => `
-        <tr>
+        <tr data-id="${item.id}">
             <td><input type="checkbox" value="${item.id}"></td>
-            <td>${item.is_folder ? '📁' : '📄'} ${item.name}</td>
+            <td style="cursor: pointer;" onclick="handleItemClick(${item.id}, ${item.is_folder})">
+                ${item.is_folder ? '📁' : '📄'} <strong>${item.name}</strong>
+            </td>
             <td>${item.is_folder ? '--' : formatBytes(item.size)}</td>
             <td>${item.created_at || '--'}</td>
         </tr>
     `).join('');
 }
 
-function formatBytes(bytes) {
-    if (!bytes) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+function handleItemClick(id, isFolder) {
+    if (isFolder) {
+        currentFolderId = id;
+        loadFiles();
+    } else {
+        window.open('/api/download/' + id, '_blank');
+    }
 }
 
 function selectDrive(driveId) {
     currentDriveId = driveId;
     currentFolderId = 0;
+    isTrashView = false;
     loadDrives();
     loadFiles();
 }
 
+function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function setupDragAndDrop() {
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+
+    if (!dropZone) return;
+
+    dropZone.addEventListener('click', () => fileInput?.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+    });
+
+    fileInput?.addEventListener('change', () => {
+        if (fileInput.files.length) uploadFiles(fileInput.files);
+    });
+}
+
+async function uploadFiles(files) {
+    for (let file of files) {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('drive_id', currentDriveId);
+        fd.append('parent_id', currentFolderId);
+
+        try {
+            document.getElementById('systemStatus').textContent = 'ЗАГРУЗКА: ' + file.name;
+            await fetch('/api/files/upload', { method: 'POST', body: fd });
+        } catch (e) {}
+    }
+    document.getElementById('systemStatus').textContent = 'СИСТЕМА ГОТОВА';
+    loadFiles();
+}
+
+function bindGlobalEvents() {
+    document.getElementById('navDriveBtn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        isTrashView = false;
+        currentFolderId = 0;
+        loadFiles();
+    });
+
+    document.getElementById('navTrashBtn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        isTrashView = true;
+        loadFiles();
+    });
+
+    document.getElementById('sidebarToggle')?.addEventListener('click', () => {
+        document.getElementById('sidebar')?.classList.toggle('collapsed');
+    });
+}
+
 function bindWizardEvents() {
+    // НАЗАД К КЛЮЧАМ
     document.getElementById('wizardBackToStep1Btn')?.addEventListener('click', () => {
         clearWizardError();
         document.getElementById('wizardStep2').style.display = 'none';
         document.getElementById('wizardStep1').style.display = 'block';
     });
 
+    // ШАГ 1: КЛЮЧИ
     document.getElementById('wizardSaveApiBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
@@ -141,7 +198,7 @@ function bindWizardEvents() {
         const apiHash = document.getElementById('wizardApiHash').value.trim();
 
         if (!apiId || !apiHash) {
-            showWizardError('Заполните API ID (только цифры) и API HASH!');
+            showWizardError('Заполните API ID и API HASH!');
             return;
         }
 
@@ -169,6 +226,7 @@ function bindWizardEvents() {
         }
     });
 
+    // ШАГ 2: ОТПРАВКА СМС
     document.getElementById('wizardSendCodeBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
@@ -189,23 +247,23 @@ function bindWizardEvents() {
 
         try {
             const res = await fetch('/api/auth/send-code', { method: 'POST', body: fd });
-            const data = await res.json().catch(() => ({}));
-
             if (res.ok) {
                 document.getElementById('wizardCodeGroup').style.display = 'block';
                 btn.textContent = '✅ КОД ЗАПРОШЕН. ПРОВЕРЬТЕ TELEGRAM';
             } else {
+                const data = await res.json().catch(() => ({}));
                 showWizardError(data.detail || 'Ошибка отправки кода');
                 btn.disabled = false;
                 btn.textContent = 'ОТПРАВИТЬ КОД';
             }
         } catch (e) {
-            showWizardError('Сбой сети: ' + e.message);
+            showWizardError('Сбой сети при запросе кода');
             btn.disabled = false;
             btn.textContent = 'ОТПРАВИТЬ КОД';
         }
     });
 
+    // ШАГ 2: ВХОД ПО КОДУ
     document.getElementById('wizardSignInBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
@@ -244,6 +302,7 @@ function bindWizardEvents() {
         }
     });
 
+    // ШАГ 2: 2FA ПАРОЛЬ
     document.getElementById('wizardSubmitPasswordBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
@@ -280,18 +339,35 @@ function bindWizardEvents() {
         }
     });
 
-    // ШАГ 3: Создание первого диска
-    document.getElementById('wizardFinishBtn')?.addEventListener('click', async (e) => {
+    // ШАГ 3: СИНХРОНИЗАЦИЯ И ДИСК
+    document.getElementById('wizardStep3NextBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
 
-        const btn = document.getElementById('wizardFinishBtn');
+        const btn = document.getElementById('wizardStep3NextBtn');
         let chatId = document.getElementById('wizardChatId').value.trim();
+        const importInput = document.getElementById('wizardImportDbInput');
 
         if (!chatId) chatId = 'me';
 
         btn.disabled = true;
-        btn.textContent = 'СОЗДАНИЕ ДИСКА...';
+        btn.textContent = 'СОХРАНЕНИЕ ДИСКА...';
+
+        // Если прикрепили файл импорта БД — загружаем его
+        if (importInput && importInput.files.length > 0) {
+            const file = importInput.files[0];
+            const reader = new FileReader();
+            reader.onload = async (evt) => {
+                try {
+                    await fetch('/api/local/import-db', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: evt.target.result
+                    });
+                } catch (e) {}
+            };
+            reader.readAsText(file);
+        }
 
         const fd = new FormData();
         fd.append('letter', 'C');
@@ -299,21 +375,39 @@ function bindWizardEvents() {
         fd.append('tg_chat_id', chatId);
 
         try {
-            const res = await fetch('/api/drives', { method: 'POST', body: fd });
-            if (res.ok) {
-                document.getElementById('wizardModal').style.display = 'none';
-                loadDrives();
-                loadFiles();
-            } else {
-                const errData = await res.json().catch(() => ({}));
-                showWizardError(errData.detail || 'Ошибка создания диска');
-            }
+            await fetch('/api/drives', { method: 'POST', body: fd });
+            document.getElementById('wizardStep3').style.display = 'none';
+            document.getElementById('wizardStep4').style.display = 'block';
         } catch (e) {
-            showWizardError('Ошибка связи с сервером');
+            showWizardError('Ошибка сохранения диска');
         } finally {
             btn.disabled = false;
-            btn.textContent = 'ЗАВЕРШИТЬ НАСТРОЙКУ 🚀';
+            btn.textContent = 'ПЕРЕЙТИ К ЗАЩИТЕ ➔';
         }
+    });
+
+    // ШАГ 4: УСТАНОВКА ЛОКАЛЬНОГО ПАРОЛЯ ПРИЛОЖЕНИЯ
+    document.getElementById('wizardFinishAllBtn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        clearWizardError();
+
+        const btn = document.getElementById('wizardFinishAllBtn');
+        const pass = document.getElementById('wizardAppPassword').value;
+        const hint = document.getElementById('wizardAppPasswordHint').value;
+
+        btn.disabled = true;
+        btn.textContent = 'ФИНАЛИЗАЦИЯ...';
+
+        if (pass) {
+            const fd = new FormData();
+            fd.append('password', pass);
+            fd.append('hint', hint);
+            try {
+                await fetch('/api/config/app-password', { method: 'POST', body: fd });
+            } catch (e) {}
+        }
+
+        finishAuthAndOpenApp();
     });
 }
 
@@ -326,8 +420,7 @@ async function checkAppAuthStatus() {
                 document.getElementById('wizardModal').style.display = 'flex';
             } else {
                 document.getElementById('wizardModal').style.display = 'none';
-                loadDrives();
-                loadFiles();
+                initAppCore();
             }
         }
     } catch (e) {}

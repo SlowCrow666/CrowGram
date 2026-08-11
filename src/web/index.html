@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="/static/css/style.css">
     <link id="themeStylesheet" rel="stylesheet" href="/themes/default/theme.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-    <script src="/static/js/artplayer.js"></script>
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -71,7 +70,7 @@
         </div>
     </div>
 
-    <!-- МАСТЕР НАСТРОЙКИ С ШАГОМ 3 (ДИСКИ) -->
+    <!-- ПОЛНЫЙ МАСТЕР УСТАНОВКИ -->
     <div class="modal-overlay" id="wizardModal" style="display: none; z-index: 3000;">
         <div class="modal-panel" style="max-width: 520px; width: 100%;">
             <div class="modal-header">
@@ -80,9 +79,9 @@
             
             <div id="wizardErrorBox" style="display:none; padding:10px; border-radius:6px; background:rgba(239,68,68,0.15); border:1px solid #ef4444; color:#f87171; font-size:12px; margin-bottom:12px;"></div>
 
-            <!-- ШАГ 1: КЛЮЧИ -->
+            <!-- ШАГ 1: КЛЮЧИ API -->
             <div id="wizardStep1" class="wizard-step">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px;">Введите ключи API с сайта my.telegram.org:</p>
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px;">Шаг 1/4: Введите ключи API с my.telegram.org:</p>
                 <div class="hud-form">
                     <div class="form-group">
                         <label>API ID:</label>
@@ -96,9 +95,9 @@
                 </div>
             </div>
 
-            <!-- ШАГ 2: ВХОД -->
+            <!-- ШАГ 2: ВХОД TELEGRAM -->
             <div id="wizardStep2" class="wizard-step" style="display: none;">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Введите номер телефона Telegram-аккаунта:</p>
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Шаг 2/4: Авторизация Telegram:</p>
                 <div class="hud-form">
                     <div class="form-group">
                         <label>НОМЕР ТЕЛЕФОНА:</label>
@@ -120,15 +119,34 @@
                 <button type="button" id="wizardBackToStep1Btn" class="hud-btn" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.08);">⬅ НАЗАД К КЛЮЧАМ API</button>
             </div>
 
-            <!-- ШАГ 3: ИНИЦИАЛИЗАЦИЯ ДИСКА -->
+            <!-- ШАГ 3: СИНХРОНИЗАЦИЯ БАЗЫ ДАННЫХ И ДИСКА -->
             <div id="wizardStep3" class="wizard-step" style="display: none;">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Настройка основного виртуального диска Telegram:</p>
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Шаг 3/4: Синхронизация и выбор диска хранилища:</p>
                 <div class="hud-form">
                     <div class="form-group">
-                        <label>ID ЧАТА / КАНАЛА ДЛЯ ХРАНЕНИЯ (-100...):</label>
-                        <input type="text" id="wizardChatId" placeholder="-1001234567890 или 'me' для Избранного">
+                        <label>ID ЧАТА / КАНАЛА ДЛЯ ФАЙЛОВ:</label>
+                        <input type="text" id="wizardChatId" placeholder="'-100...' или 'me' для Избранного" value="me">
                     </div>
-                    <button type="button" class="hud-btn primary" id="wizardFinishBtn" style="width: 100%; margin-top: 10px;">ЗАВЕРШИТЬ НАСТРОЙКУ 🚀</button>
+                    <p style="font-size: 11px; color: #8892b0; margin: 10px 0;">Есть бэкап структуры файлов (JSON)? Восстановите его:</p>
+                    <input type="file" id="wizardImportDbInput" accept=".json" style="margin-bottom: 15px; font-size: 11px;">
+                    
+                    <button type="button" class="hud-btn primary" id="wizardStep3NextBtn" style="width: 100%;">ПЕРЕЙТИ К ЗАЩИТЕ ➔</button>
+                </div>
+            </div>
+
+            <!-- ШАГ 4: УСТАНОВКА ПАРОЛЯ НА ВХОД В ПРИЛОЖЕНИЕ -->
+            <div id="wizardStep4" class="wizard-step" style="display: none;">
+                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Шаг 4/4: Защита приложения локальным паролем (опционально):</p>
+                <div class="hud-form">
+                    <div class="form-group">
+                        <label>ПАРОЛЬ ПРИЛОЖЕНИЯ (Оставьте пустым, если не нужен):</label>
+                        <input type="password" id="wizardAppPassword" placeholder="Придумайте пароль...">
+                    </div>
+                    <div class="form-group">
+                        <label>ПОДСКАЗКА ДЛЯ ПАРОЛЯ:</label>
+                        <input type="text" id="wizardAppPasswordHint" placeholder="Например: дата рождения">
+                    </div>
+                    <button type="button" class="hud-btn primary" id="wizardFinishAllBtn" style="width: 100%; margin-top: 10px;">ЗАВЕРШИТЬ НАСТРОЙКУ И ЗАПУСТИТЬ 🚀</button>
                 </div>
             </div>
         </div>
