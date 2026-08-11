@@ -1,9 +1,8 @@
-import os
-from pathlib import Path
+import logging
 from pyrogram import Client
 from src.core.db import get_config
 
-SESSION_NAME = "crowgram_session"
+logger = logging.getLogger("CrowGram_TG")
 
 class TelegramManager:
     def __init__(self):
@@ -13,22 +12,6 @@ class TelegramManager:
 
     def is_authorized(self):
         return self.app is not None and self.app.is_connected
-
-    async def clear_session(self):
-        if self.app:
-            try:
-                if self.app.is_connected:
-                    await self.app.disconnect()
-            except Exception:
-                pass
-            self.app = None
-        
-        session_file = Path(f"{SESSION_NAME}.session")
-        if session_file.exists():
-            try:
-                session_file.unlink()
-            except Exception:
-                pass
 
     async def init_client(self):
         api_id_val = get_config("api_id")
@@ -43,15 +26,22 @@ class TelegramManager:
         except ValueError:
             raise Exception("API ID должен состоять только из цифр!")
 
+        # Если клиент уже создан и работает с этими же ключами — просто используем его
         if self.app and getattr(self, "_current_id", None) == clean_id:
             if not self.app.is_connected:
                 await self.app.connect()
             return
 
-        await self.clear_session()
+        # Если ключи сменились — аккуратно отключаем старый клиент
+        if self.app:
+            try:
+                if self.app.is_connected:
+                    await self.app.disconnect()
+            except Exception:
+                pass
 
         self.app = Client(
-            SESSION_NAME,
+            "crowgram_session",
             api_id=clean_id,
             api_hash=clean_hash,
             in_memory=False
@@ -60,22 +50,21 @@ class TelegramManager:
         await self.app.connect()
 
     async def send_code(self, phone: str):
-        # При повторном запросе кода сбрасываем старый неавторизованный сеанс
-        await self.clear_session()
+        # Подключаем клиент без постоянного сноса сессии
         await self.init_client()
 
-        if not self.app:
-            raise Exception("Не удалось создать клиент Pyrogram")
+        if not self.app or not self.app.is_connected:
+            raise Exception("Не удалось установить соединение с Telegram")
 
         self.phone = phone
         res = await self.app.send_code(phone)
         self.phone_code_hash = res.phone_code_hash
         
-        return {"status": "code_sent", "phone_code_hash": self.phone_code_hash}
+        return {"status": "code_sent"}
 
     async def sign_in(self, code: str):
         if not self.app or not self.phone or not self.phone_code_hash:
-            raise Exception("Сессия истекла. Нажмите 'Отправить код' заново.")
+            raise Exception("Сессия истекла. Запросите код заново.")
         try:
             await self.app.sign_in(self.phone, self.phone_code_hash, code)
             return {"status": "success"}
