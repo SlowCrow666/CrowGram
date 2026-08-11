@@ -113,14 +113,12 @@ function clearWizardError() {
 }
 
 function bindWizardEvents() {
-    // Назад к Ключам API
     document.getElementById('wizardBackToStep1Btn')?.addEventListener('click', () => {
         clearWizardError();
         document.getElementById('wizardStep2').style.display = 'none';
         document.getElementById('wizardStep1').style.display = 'block';
     });
 
-    // ШАГ 1: Сохранение API ID / HASH
     document.getElementById('wizardSaveApiBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
@@ -158,7 +156,6 @@ function bindWizardEvents() {
         }
     });
 
-    // ШАГ 2: Отправка телефона
     document.getElementById('wizardSendCodeBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
@@ -172,30 +169,30 @@ function bindWizardEvents() {
         }
 
         btn.disabled = true;
-        btn.textContent = '⏳ ОТПРАВКА КОДА...';
+        btn.textContent = '⏳ ЗАПРОС КОДА У TELEGRAM...';
 
         const fd = new FormData();
         fd.append('phone', phone);
 
         try {
             const res = await fetch('/api/auth/send-code', { method: 'POST', body: fd });
+            const data = await res.json().catch(() => ({}));
+
             if (res.ok) {
                 document.getElementById('wizardCodeGroup').style.display = 'block';
-                btn.textContent = '✅ КОД ОТПРАВЛЕН В TELEGRAM';
+                btn.textContent = '✅ КОД ЗАПРОШЕН. ПРОВЕРЬТЕ TELEGRAM';
             } else {
-                const data = await res.json().catch(() => ({}));
                 showWizardError(data.detail || 'Ошибка отправки кода');
                 btn.disabled = false;
                 btn.textContent = 'ОТПРАВИТЬ КОД';
             }
         } catch (e) {
-            showWizardError('Ошибка сервера при отправке кода');
+            showWizardError('Сбой сети: ' + e.message);
             btn.disabled = false;
             btn.textContent = 'ОТПРАВИТЬ КОД';
         }
     });
 
-    // ШАГ 2: Подтверждение кода
     document.getElementById('wizardSignInBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
@@ -216,7 +213,7 @@ function bindWizardEvents() {
 
         try {
             const res = await fetch('/api/auth/sign-in', { method: 'POST', body: fd });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
 
             if (data.status === 'password_required') {
                 document.getElementById('wizardPasswordGroup').style.display = 'block';
@@ -224,7 +221,7 @@ function bindWizardEvents() {
                 document.getElementById('wizardStep2').style.display = 'none';
                 document.getElementById('wizardStep3').style.display = 'block';
             } else {
-                showWizardError('Неверный код!');
+                showWizardError(data.detail || 'Неверный код!');
             }
         } catch (e) {
             showWizardError('Ошибка проверки кода');
@@ -234,7 +231,6 @@ function bindWizardEvents() {
         }
     });
 
-    // ШАГ 2: 2FA Пароль
     document.getElementById('wizardSubmitPasswordBtn')?.addEventListener('click', async (e) => {
         e.preventDefault();
         clearWizardError();
