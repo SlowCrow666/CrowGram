@@ -53,18 +53,10 @@ class TelegramManager:
         self.phone = phone
         print(f"\n[TG API] Отправка запроса на код для {phone}...")
         
-        # Запрашиваем код
         res = await self.app.send_code(phone)
         self.phone_code_hash = res.phone_code_hash
         
-        # Если Telegram отдаёт старый хэш и не шлёт код, запрашиваем повторную отправку
-        try:
-            res_repeat = await self.app.resend_code(phone, self.phone_code_hash)
-            self.phone_code_hash = res_repeat.phone_code_hash
-            print(f"[TG API] Принудительный повтор отправки выполнен! Hash: {self.phone_code_hash}\n")
-        except Exception as e:
-            print(f"[TG API] Первичный код зафиксирован (resend не потребовался): {e}\n")
-
+        print(f"[TG API] Запрос принят Telegram! Hash: {self.phone_code_hash}\n")
         return {"status": "code_sent"}
 
     async def sign_in(self, code: str):
