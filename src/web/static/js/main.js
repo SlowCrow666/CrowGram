@@ -220,13 +220,54 @@ function checkIsFavorite(val) {
     return val === 1 || val === "1" || val === true || val === "true";
 }
 
+function getFileTypeInfo(filename, isDir) {
+    if (isDir) {
+        return { colorClass: 'file-color-folder', icon: '📁' };
+    }
+    const ext = (filename || '').split('.').pop().toLowerCase();
+    
+    // Video
+    if (['mp4', 'mkv', 'mov', 'avi', 'webm', 'flv', 'ts', 'm4v', 'wmv', '3gp'].includes(ext)) {
+        return { colorClass: 'file-color-video', icon: '🎬', ext };
+    }
+    // Audio
+    if (['mp3', 'flac', 'wav', 'ogg', 'aac', 'm4a', 'opus', 'wma', 'alac'].includes(ext)) {
+        return { colorClass: 'file-color-audio', icon: '🎵', ext };
+    }
+    // Image
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff', 'heic'].includes(ext)) {
+        return { colorClass: 'file-color-image', icon: '🖼️', ext };
+    }
+    // Document
+    if (['txt', 'md', 'doc', 'docx', 'pdf', 'xls', 'xlsx', 'ppt', 'pptx', 'rtf', 'csv', 'odt', 'ods'].includes(ext)) {
+        return { colorClass: 'file-color-doc', icon: '📄', ext };
+    }
+    // Archive
+    if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'iso', 'tgz'].includes(ext)) {
+        return { colorClass: 'file-color-archive', icon: '📦', ext };
+    }
+    // Code
+    if (['js', 'ts', 'py', 'json', 'html', 'css', 'c', 'cpp', 'h', 'hpp', 'go', 'rs', 'php', 'rb', 'sql', 'sh', 'yaml', 'yml', 'xml', 'scss', 'less', 'java', 'cs'].includes(ext)) {
+        return { colorClass: 'file-color-code', icon: '💻', ext };
+    }
+    // Executable / Binary
+    if (['exe', 'msi', 'bat', 'cmd', 'ps1', 'apk', 'dmg', 'deb', 'rpm', 'bin', 'dll'].includes(ext)) {
+        return { colorClass: 'file-color-exe', icon: '⚙️', ext };
+    }
+
+    return { colorClass: 'file-color-default', icon: '📄', ext };
+}
+
+window.getFileTypeInfo = getFileTypeInfo;
+window.getFileTypeClass = (filename, isDir) => getFileTypeInfo(filename, isDir).colorClass;
+
 function renderTableList(items) {
     const tbody = document.getElementById('fileList');
     if (!tbody) return;
 
     if (!items || items.length === 0) {
         const emptyMsg = window.t('table.emptyFolder') || 'Папка пуста.';
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #8892b0; padding: 30px;">${emptyMsg}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">${emptyMsg}</td></tr>`;
         return;
     }
 
@@ -234,20 +275,22 @@ function renderTableList(items) {
         const ext = item.name.split('.').pop().toLowerCase();
         const isChecked = selectedFileIds.has(item.id) ? 'checked' : '';
         const isFav = checkIsFavorite(item.is_favorite);
+        const typeInfo = getFileTypeInfo(item.name, item.is_folder);
 
         return `
         <tr data-id="${item.id}">
-            <td><input type="checkbox" value="${item.id}" ${isChecked} onchange="toggleSelectFile(${item.id})"></td>
+            <td><input type="checkbox" class="hud-checkbox" value="${item.id}" ${isChecked} onchange="toggleSelectFile(${item.id})"></td>
             <td>
                 <button class="fav-btn ${isFav ? 'active' : ''}" onclick="toggleFav(${item.id}, ${isFav ? 0 : 1})">
                     ${isFav ? '⭐' : '☆'}
                 </button>
             </td>
             <td style="cursor: pointer;" onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', ${item.is_folder})">
-                ${item.is_folder ? '📁' : '📄'} <strong>${item.name}</strong>
+                <span class="file-icon ${typeInfo.colorClass}">${typeInfo.icon}</span>
+                <span style="color: var(--text-primary); font-weight: 500;">${item.name}</span>
             </td>
-            <td>${item.is_folder ? '--' : formatBytes(item.size)}</td>
-            <td>${item.created_at || '--'}</td>
+            <td class="mono" style="color: var(--text-muted);">${item.is_folder ? '--' : formatBytes(item.size)}</td>
+            <td class="mono" style="color: var(--text-muted);">${item.created_at || '--'}</td>
             <td class="action-cell" style="text-align: right;">
                 ${!item.is_folder ? `<button onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', false)" class="hud-btn" title="Открыть">👁</button>` : ''}
                 ${!item.is_folder ? `<a href="/api/download/${item.id}" target="_blank" class="hud-btn primary" title="Скачать">💾</a>` : ''}
@@ -264,7 +307,7 @@ function renderGridList(items) {
 
     if (!items || items.length === 0) {
         const emptyMsg = window.t('table.emptyFolder') || 'Папка пуста';
-        grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #8892b0; padding: 30px;">${emptyMsg}</div>`;
+        grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 32px;">${emptyMsg}</div>`;
         return;
     }
 
@@ -272,12 +315,13 @@ function renderGridList(items) {
         const ext = item.name.split('.').pop().toLowerCase();
         const isChecked = selectedFileIds.has(item.id) ? 'checked' : '';
         const isFav = checkIsFavorite(item.is_favorite);
+        const typeInfo = getFileTypeInfo(item.name, item.is_folder);
 
         return `
         <div class="grid-item" onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', ${item.is_folder})">
-            <input type="checkbox" class="grid-checkbox" value="${item.id}" ${isChecked} onclick="event.stopPropagation(); toggleSelectFile(${item.id})">
-            <button class="fav-btn ${isFav ? 'active' : ''} grid-fav-btn" onclick="toggleFav(${item.id}, ${isFav ? 0 : 1})">${isFav ? '⭐' : '☆'}</button>
-            <div class="grid-icon">${item.is_folder ? '📁' : '📄'}</div>
+            <input type="checkbox" class="grid-checkbox hud-checkbox" value="${item.id}" ${isChecked} onclick="event.stopPropagation(); toggleSelectFile(${item.id})">
+            <button class="fav-btn ${isFav ? 'active' : ''} grid-fav-btn" onclick="event.stopPropagation(); toggleFav(${item.id}, ${isFav ? 0 : 1})">${isFav ? '⭐' : '☆'}</button>
+            <div class="grid-icon ${typeInfo.colorClass}">${typeInfo.icon}</div>
             <div class="grid-name">${item.name}</div>
         </div>
         `;

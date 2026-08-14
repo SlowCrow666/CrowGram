@@ -100,6 +100,45 @@ a:hover {
 }
 
 /* ==========================================================================
+   FILE TYPE COLOR GRADING SYSTEM (DESATURATED MATTE COLORS)
+   ========================================================================== */
+
+.file-color-folder   { color: #e5b567 !important; fill: #e5b567 !important; } /* Warm amber */
+.file-color-video    { color: #a78bfa !important; fill: #a78bfa !important; } /* Muted lavender violet */
+.file-color-audio    { color: #34d399 !important; fill: #34d399 !important; } /* Soft emerald */
+.file-color-image    { color: #f472b6 !important; fill: #f472b6 !important; } /* Soft coral pink */
+.file-color-doc      { color: #93c5fd !important; fill: #93c5fd !important; } /* Slate light blue */
+.file-color-archive  { color: #fb923c !important; fill: #fb923c !important; } /* Muted terracotta */
+.file-color-code     { color: #38bdf8 !important; fill: #38bdf8 !important; } /* Calm cyan */
+.file-color-exe      { color: #cbd5e1 !important; fill: #cbd5e1 !important; } /* Ash gray */
+.file-color-default  { color: #94a3b8 !important; fill: #94a3b8 !important; } /* Base neutral */
+
+.file-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-style: normal;
+    margin-right: 8px;
+    font-size: 15px;
+    vertical-align: middle;
+    flex-shrink: 0;
+    transition: transform var(--duration-fast) var(--ease-out-expo);
+}
+
+.file-badge-ext {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: inline-block;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+/* ==========================================================================
    SIDEBAR
    ========================================================================== */
 
@@ -682,6 +721,10 @@ a:hover {
     align-items: center;
     justify-content: center;
     font-size: 34px;
+    transition: transform var(--duration-fast) var(--ease-out-expo);
+}
+.grid-item:hover .grid-icon {
+    transform: scale(1.08);
 }
 .file-grid.small .grid-icon {
     width: 36px;

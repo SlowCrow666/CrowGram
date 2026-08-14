@@ -177,28 +177,28 @@
         
         .tc-row {
             display: flex;
-            padding: 3px 0;
+            padding: 4px 0;
             cursor: pointer;
             user-select: none;
             font-size: 12px;
+            color: #f0f2f5;
             transition: background 0.06s ease-out;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
         }
-        .tc-row:hover { background: rgba(56, 189, 248, 0.06); }
-        .tc-row.folder { color: #facc15; font-weight: 600; }
-        .tc-row.selected-item { color: #f87171 !important; font-weight: 600; }
+        .tc-row:hover { background: rgba(255, 255, 255, 0.04); }
+        .tc-row.selected-item { background: rgba(239, 68, 68, 0.12) !important; color: #fca5a5 !important; }
         .tc-row.cursor { 
-            background: #1f3554 !important; 
+            background: rgba(56, 189, 248, 0.16) !important; 
             color: #ffffff !important; 
+            outline: 1px solid rgba(56, 189, 248, 0.35);
         }
-        .tc-row.cursor.folder { color: #fde047 !important; }
-        .tc-row.cursor.selected-item { color: #fda4af !important; }
+        .tc-row.cursor.selected-item { background: rgba(239, 68, 68, 0.25) !important; color: #ffffff !important; }
         
-        .tc-cell { padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .tc-cell-name { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
-        .tc-cell-ext { width: 55px; text-align: center; color: #8b949e; flex-shrink: 0; font-size: 11px; }
-        .tc-cell-size { width: 95px; text-align: right; flex-shrink: 0; }
-        .tc-cell-date { width: 130px; text-align: right; color: #8b949e; flex-shrink: 0; font-size: 11px; }
+        .tc-cell { padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; }
+        .tc-cell-name { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 2px; }
+        .tc-cell-ext { width: 60px; justify-content: center; flex-shrink: 0; font-size: 11px; }
+        .tc-cell-size { width: 95px; justify-content: flex-end; flex-shrink: 0; }
+        .tc-cell-date { width: 130px; justify-content: flex-end; flex-shrink: 0; font-size: 11px; }
 
         .tc-footer {
             background-color: #161b22;
@@ -740,13 +740,20 @@
                 const folderTag = i18n('table.folderTag', '<ПАПКА>');
                 const sizeStr = isDir ? folderTag : formatBytesShort(item.size);
                 const dateStr = item.isUpDir ? '' : this.formatDate(item.mtime || item.created_at);
-                const icon = item.isUpDir ? '📁' : (isDir ? '📁' : '📄');
+
+                const typeInfo = getTCFileTypeInfo(item.name, isDir);
+                const icon = item.isUpDir ? '📁' : typeInfo.icon;
+                const iconClass = item.isUpDir ? 'file-color-folder' : typeInfo.colorClass;
+                const extBadge = (!isDir && ext) ? `<span class="file-badge-ext ${typeInfo.colorClass}">${ext}</span>` : '';
 
                 row.innerHTML = `
-                    <div class="tc-cell tc-cell-name" title="${item.name}">${icon} ${nameObj}</div>
-                    <div class="tc-cell tc-cell-ext">${ext}</div>
-                    <div class="tc-cell tc-cell-size">${sizeStr}</div>
-                    <div class="tc-cell tc-cell-date">${dateStr}</div>
+                    <div class="tc-cell tc-cell-name" title="${item.name}">
+                        <span class="file-icon ${iconClass}">${icon}</span>
+                        <span style="color: var(--text-primary); font-weight: 500;">${nameObj}</span>
+                    </div>
+                    <div class="tc-cell tc-cell-ext">${extBadge}</div>
+                    <div class="tc-cell tc-cell-size mono" style="color: var(--text-muted);">${sizeStr}</div>
+                    <div class="tc-cell tc-cell-date mono" style="color: var(--text-muted);">${dateStr}</div>
                 `;
                 
                 row.onmousedown = (e) => {
@@ -1206,6 +1213,22 @@
         const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + (sizes[i] || 'B');
+    }
+
+    function getTCFileTypeInfo(filename, isDir) {
+        if (window.getFileTypeInfo) {
+            return window.getFileTypeInfo(filename, isDir);
+        }
+        if (isDir) return { colorClass: 'file-color-folder', icon: '📁' };
+        const ext = (filename || '').split('.').pop().toLowerCase();
+        if (['mp4', 'mkv', 'mov', 'avi', 'webm', 'flv', 'ts'].includes(ext)) return { colorClass: 'file-color-video', icon: '🎬', ext };
+        if (['mp3', 'flac', 'wav', 'ogg', 'aac', 'm4a'].includes(ext)) return { colorClass: 'file-color-audio', icon: '🎵', ext };
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return { colorClass: 'file-color-image', icon: '🖼️', ext };
+        if (['txt', 'md', 'doc', 'docx', 'pdf', 'xls', 'xlsx'].includes(ext)) return { colorClass: 'file-color-doc', icon: '📄', ext };
+        if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'iso'].includes(ext)) return { colorClass: 'file-color-archive', icon: '📦', ext };
+        if (['js', 'ts', 'py', 'json', 'html', 'css', 'c', 'cpp'].includes(ext)) return { colorClass: 'file-color-code', icon: '💻', ext };
+        if (['exe', 'msi', 'bat', 'cmd', 'ps1', 'apk'].includes(ext)) return { colorClass: 'file-color-exe', icon: '⚙️', ext };
+        return { colorClass: 'file-color-default', icon: '📄', ext };
     }
 
     const CrowCommander = {
