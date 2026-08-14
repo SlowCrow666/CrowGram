@@ -220,42 +220,72 @@ function checkIsFavorite(val) {
     return val === 1 || val === "1" || val === true || val === "true";
 }
 
+function getFileSvgIcon(type, size = 18) {
+    switch (type) {
+        case 'folder':
+            return `<svg class="file-svg-icon file-color-folder" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
+        case 'video':
+            return `<svg class="file-svg-icon file-color-video" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`;
+        case 'audio':
+            return `<svg class="file-svg-icon file-color-audio" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+        case 'image':
+            return `<svg class="file-svg-icon file-color-image" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
+        case 'doc':
+            return `<svg class="file-svg-icon file-color-doc" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
+        case 'archive':
+            return `<svg class="file-svg-icon file-color-archive" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>`;
+        case 'code':
+            return `<svg class="file-svg-icon file-color-code" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`;
+        case 'exe':
+            return `<svg class="file-svg-icon file-color-exe" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1"/><circle cx="15" cy="15" r="1"/><path d="M14 9l-4 6"/></svg>`;
+        default:
+            return `<svg class="file-svg-icon file-color-default" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>`;
+    }
+}
+
+window.getFileSvgIcon = getFileSvgIcon;
+
 function getFileTypeInfo(filename, isDir) {
     if (isDir) {
-        return { colorClass: 'file-color-folder', icon: '📁' };
+        return {
+            type: 'folder',
+            colorClass: 'file-color-folder',
+            icon: '📁',
+            getSvg: (size = 18) => getFileSvgIcon('folder', size)
+        };
     }
     const ext = (filename || '').split('.').pop().toLowerCase();
     
     // Video
     if (['mp4', 'mkv', 'mov', 'avi', 'webm', 'flv', 'ts', 'm4v', 'wmv', '3gp'].includes(ext)) {
-        return { colorClass: 'file-color-video', icon: '🎬', ext };
+        return { type: 'video', colorClass: 'file-color-video', icon: '🎬', ext, getSvg: (size = 18) => getFileSvgIcon('video', size) };
     }
     // Audio
     if (['mp3', 'flac', 'wav', 'ogg', 'aac', 'm4a', 'opus', 'wma', 'alac'].includes(ext)) {
-        return { colorClass: 'file-color-audio', icon: '🎵', ext };
+        return { type: 'audio', colorClass: 'file-color-audio', icon: '🎵', ext, getSvg: (size = 18) => getFileSvgIcon('audio', size) };
     }
     // Image
     if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff', 'heic'].includes(ext)) {
-        return { colorClass: 'file-color-image', icon: '🖼️', ext };
+        return { type: 'image', colorClass: 'file-color-image', icon: '🖼️', ext, getSvg: (size = 18) => getFileSvgIcon('image', size) };
     }
     // Document
-    if (['txt', 'md', 'doc', 'docx', 'pdf', 'xls', 'xlsx', 'ppt', 'pptx', 'rtf', 'csv', 'odt', 'ods'].includes(ext)) {
-        return { colorClass: 'file-color-doc', icon: '📄', ext };
+    if (['txt', 'md', 'doc', 'docx', 'pdf', 'xls', 'xlsx', 'ppt', 'pptx', 'rtf', 'csv', 'odt', 'ods', 'lottie'].includes(ext)) {
+        return { type: 'doc', colorClass: 'file-color-doc', icon: '📄', ext, getSvg: (size = 18) => getFileSvgIcon('doc', size) };
     }
     // Archive
     if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'iso', 'tgz'].includes(ext)) {
-        return { colorClass: 'file-color-archive', icon: '📦', ext };
+        return { type: 'archive', colorClass: 'file-color-archive', icon: '📦', ext, getSvg: (size = 18) => getFileSvgIcon('archive', size) };
     }
     // Code
     if (['js', 'ts', 'py', 'json', 'html', 'css', 'c', 'cpp', 'h', 'hpp', 'go', 'rs', 'php', 'rb', 'sql', 'sh', 'yaml', 'yml', 'xml', 'scss', 'less', 'java', 'cs'].includes(ext)) {
-        return { colorClass: 'file-color-code', icon: '💻', ext };
+        return { type: 'code', colorClass: 'file-color-code', icon: '💻', ext, getSvg: (size = 18) => getFileSvgIcon('code', size) };
     }
     // Executable / Binary
     if (['exe', 'msi', 'bat', 'cmd', 'ps1', 'apk', 'dmg', 'deb', 'rpm', 'bin', 'dll'].includes(ext)) {
-        return { colorClass: 'file-color-exe', icon: '⚙️', ext };
+        return { type: 'exe', colorClass: 'file-color-exe', icon: '⚙️', ext, getSvg: (size = 18) => getFileSvgIcon('exe', size) };
     }
 
-    return { colorClass: 'file-color-default', icon: '📄', ext };
+    return { type: 'default', colorClass: 'file-color-default', icon: '📄', ext, getSvg: (size = 18) => getFileSvgIcon('default', size) };
 }
 
 window.getFileTypeInfo = getFileTypeInfo;
@@ -286,8 +316,9 @@ function renderTableList(items) {
                 </button>
             </td>
             <td style="cursor: pointer;" onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', ${item.is_folder})">
-                <span class="file-icon ${typeInfo.colorClass}">${typeInfo.icon}</span>
-                <span style="color: var(--text-primary); font-weight: 500;">${item.name}</span>
+                <span class="file-icon-wrap ${typeInfo.colorClass}">${typeInfo.getSvg(18)}</span>
+                <span class="file-name-text">${item.name}</span>
+                ${!item.is_folder && ext ? `<span class="file-badge-ext ${typeInfo.colorClass}">${ext}</span>` : ''}
             </td>
             <td class="mono" style="color: var(--text-muted);">${item.is_folder ? '--' : formatBytes(item.size)}</td>
             <td class="mono" style="color: var(--text-muted);">${item.created_at || '--'}</td>
@@ -321,8 +352,11 @@ function renderGridList(items) {
         <div class="grid-item" onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', ${item.is_folder})">
             <input type="checkbox" class="grid-checkbox hud-checkbox" value="${item.id}" ${isChecked} onclick="event.stopPropagation(); toggleSelectFile(${item.id})">
             <button class="fav-btn ${isFav ? 'active' : ''} grid-fav-btn" onclick="event.stopPropagation(); toggleFav(${item.id}, ${isFav ? 0 : 1})">${isFav ? '⭐' : '☆'}</button>
-            <div class="grid-icon ${typeInfo.colorClass}">${typeInfo.icon}</div>
+            <div class="grid-icon-box ${typeInfo.colorClass}">
+                ${typeInfo.getSvg(30)}
+            </div>
             <div class="grid-name">${item.name}</div>
+            ${!item.is_folder && ext ? `<span class="file-badge-ext ${typeInfo.colorClass}" style="margin-top: 6px;">${ext}</span>` : ''}
         </div>
         `;
     }).join('');

@@ -742,13 +742,13 @@
                 const dateStr = item.isUpDir ? '' : this.formatDate(item.mtime || item.created_at);
 
                 const typeInfo = getTCFileTypeInfo(item.name, isDir);
-                const icon = item.isUpDir ? '📁' : typeInfo.icon;
+                const svgIcon = item.isUpDir ? (window.getFileSvgIcon ? window.getFileSvgIcon('folder', 16) : '📁') : (typeInfo.getSvg ? typeInfo.getSvg(16) : typeInfo.icon);
                 const iconClass = item.isUpDir ? 'file-color-folder' : typeInfo.colorClass;
                 const extBadge = (!isDir && ext) ? `<span class="file-badge-ext ${typeInfo.colorClass}">${ext}</span>` : '';
 
                 row.innerHTML = `
                     <div class="tc-cell tc-cell-name" title="${item.name}">
-                        <span class="file-icon ${iconClass}">${icon}</span>
+                        <span class="file-icon-wrap ${iconClass}">${svgIcon}</span>
                         <span style="color: var(--text-primary); font-weight: 500;">${nameObj}</span>
                     </div>
                     <div class="tc-cell tc-cell-ext">${extBadge}</div>

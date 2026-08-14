@@ -113,30 +113,49 @@ a:hover {
 .file-color-exe      { color: #cbd5e1 !important; fill: #cbd5e1 !important; } /* Ash gray */
 .file-color-default  { color: #94a3b8 !important; fill: #94a3b8 !important; } /* Base neutral */
 
-.file-icon {
+.file-icon-wrap {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-style: normal;
     margin-right: 8px;
-    font-size: 15px;
     vertical-align: middle;
     flex-shrink: 0;
+}
+
+.file-svg-icon {
+    display: inline-block;
+    vertical-align: middle;
     transition: transform var(--duration-fast) var(--ease-out-expo);
+}
+
+.file-name-text {
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-right: 8px;
 }
 
 .file-badge-ext {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    font-weight: 600;
+    font-size: 9px;
+    font-weight: 700;
     padding: 1px 5px;
-    border-radius: 3px;
+    border-radius: 4px;
     background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     display: inline-block;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.4px;
     text-transform: uppercase;
+    vertical-align: middle;
 }
+.file-badge-ext.file-color-folder   { background: rgba(229, 181, 103, 0.12); color: #e5b567 !important; border-color: rgba(229, 181, 103, 0.3) !important; }
+.file-badge-ext.file-color-video    { background: rgba(167, 139, 250, 0.12); color: #a78bfa !important; border-color: rgba(167, 139, 250, 0.3) !important; }
+.file-badge-ext.file-color-audio    { background: rgba(52, 211, 153, 0.12); color: #34d399 !important; border-color: rgba(52, 211, 153, 0.3) !important; }
+.file-badge-ext.file-color-image    { background: rgba(244, 114, 182, 0.12); color: #f472b6 !important; border-color: rgba(244, 114, 182, 0.3) !important; }
+.file-badge-ext.file-color-doc      { background: rgba(147, 197, 253, 0.12); color: #93c5fd !important; border-color: rgba(147, 197, 253, 0.3) !important; }
+.file-badge-ext.file-color-archive  { background: rgba(251, 146, 60, 0.12); color: #fb923c !important; border-color: rgba(251, 146, 60, 0.3) !important; }
+.file-badge-ext.file-color-code     { background: rgba(56, 189, 248, 0.12); color: #38bdf8 !important; border-color: rgba(56, 189, 248, 0.3) !important; }
+.file-badge-ext.file-color-exe      { background: rgba(203, 213, 225, 0.12); color: #cbd5e1 !important; border-color: rgba(203, 213, 225, 0.3) !important; }
+.file-badge-ext.file-color-default  { background: rgba(148, 163, 184, 0.08); color: #94a3b8 !important; border-color: rgba(148, 163, 184, 0.2) !important; }
 
 /* ==========================================================================
    SIDEBAR
@@ -667,19 +686,19 @@ a:hover {
 
 .file-grid {
     display: grid;
-    gap: 12px;
-    padding: 12px 0;
+    gap: 14px;
+    padding: 14px 0;
 }
 .file-grid.large {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
 }
 .file-grid.small {
-    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
 }
 
 .grid-item {
     position: relative;
-    background: #151821;
+    background: #141720;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     padding: 14px 10px;
@@ -693,9 +712,11 @@ a:hover {
 }
 .grid-item:hover {
     border-color: var(--border-hover);
-    background: #1c202c;
+    background: #1a1e2b;
     transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
 }
+
 .grid-checkbox {
     position: absolute;
     top: 8px;
@@ -713,25 +734,51 @@ a:hover {
     cursor: pointer;
     color: var(--text-dim);
 }
-.grid-icon {
-    width: 48px;
-    height: 48px;
-    margin-bottom: 8px;
+
+.grid-icon-box {
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 34px;
+    margin-bottom: 10px;
+    position: relative;
     transition: transform var(--duration-fast) var(--ease-out-expo);
+    background: rgba(255, 255, 255, 0.03);
 }
-.grid-item:hover .grid-icon {
-    transform: scale(1.08);
+.grid-item:hover .grid-icon-box {
+    transform: scale(1.06);
+}
+.file-grid.small .grid-icon-box {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+}
+
+.grid-icon {
+    font-size: 32px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 .file-grid.small .grid-icon {
-    width: 36px;
-    height: 36px;
-    font-size: 26px;
-    margin-bottom: 6px;
+    font-size: 22px;
 }
+
+/* Background tints for card icon containers */
+.grid-icon-box.file-color-folder   { background: rgba(229, 181, 103, 0.12); border: 1px solid rgba(229, 181, 103, 0.22); }
+.grid-icon-box.file-color-video    { background: rgba(167, 139, 250, 0.12); border: 1px solid rgba(167, 139, 250, 0.22); }
+.grid-icon-box.file-color-audio    { background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.22); }
+.grid-icon-box.file-color-image    { background: rgba(244, 114, 182, 0.12); border: 1px solid rgba(244, 114, 182, 0.22); }
+.grid-icon-box.file-color-doc      { background: rgba(147, 197, 253, 0.12); border: 1px solid rgba(147, 197, 253, 0.22); }
+.grid-icon-box.file-color-archive  { background: rgba(251, 146, 60, 0.12); border: 1px solid rgba(251, 146, 60, 0.22); }
+.grid-icon-box.file-color-code     { background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.22); }
+.grid-icon-box.file-color-exe      { background: rgba(203, 213, 225, 0.12); border: 1px solid rgba(203, 213, 225, 0.22); }
+.grid-icon-box.file-color-default  { background: rgba(148, 163, 184, 0.08); border: 1px solid rgba(148, 163, 184, 0.15); }
+
 .grid-name {
     font-size: 11px;
     font-weight: 500;
