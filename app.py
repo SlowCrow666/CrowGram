@@ -43,6 +43,14 @@ mimetypes.add_type('video/x-matroska', '.mkv')
 mimetypes.add_type('audio/mpeg', '.mp3')
 mimetypes.add_type('audio/flac', '.flac')
 mimetypes.add_type('audio/ogg', '.ogg')
+mimetypes.add_type('image/webp', '.webp')
+mimetypes.add_type('image/svg+xml', '.svg')
+mimetypes.add_type('image/png', '.png')
+mimetypes.add_type('image/jpeg', '.jpg')
+mimetypes.add_type('image/jpeg', '.jpeg')
+mimetypes.add_type('image/gif', '.gif')
+mimetypes.add_type('image/bmp', '.bmp')
+mimetypes.add_type('image/x-icon', '.ico')
 
 BASE_DIR = Path(__file__).resolve().parent
 PLUGINS_DIR = BASE_DIR / "src" / "web" / "static" / "plugins"
@@ -731,7 +739,7 @@ async def stream_file(file_id: int, request: Request):
         
     file_size = file_info["size"]
     mime_type, _ = mimetypes.guess_type(file_info["name"])
-    media_type = mime_type or "video/mp4"
+    media_type = mime_type or "application/octet-stream"
 
     if file_size == 0: return Response(content=b"", media_type=media_type)
 
@@ -754,6 +762,7 @@ async def stream_file(file_id: int, request: Request):
         "Accept-Ranges": "bytes",
         "Content-Length": str(end - start + 1),
         "Content-Type": media_type,
+        "Cache-Control": "public, max-age=86400",
     }
     status_code = 206 if range_header else 200
 

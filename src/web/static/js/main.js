@@ -394,21 +394,41 @@ function renderGridList(items) {
         return;
     }
 
+    const isLarge = currentViewMode === 'grid_large';
+    const iconSize = isLarge ? 34 : 24;
+
     grid.innerHTML = items.map(item => {
         const ext = item.name.split('.').pop().toLowerCase();
         const isChecked = selectedFileIds.has(item.id) ? 'checked' : '';
         const isFav = checkIsFavorite(item.is_favorite);
         const typeInfo = getFileTypeInfo(item.name, item.is_folder);
+        const isImage = !item.is_folder && typeInfo.type === 'image';
+
+        const previewContent = isImage ? `
+            <img class="grid-thumbnail-img" 
+                 src="/api/stream/${item.id}" 
+                 alt="${escapeHtml(item.name)}" 
+                 loading="lazy" 
+                 onload="this.classList.add('loaded')"
+                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+            <div class="grid-icon-box ${typeInfo.colorClass} grid-fallback-icon" style="display: none;">
+                ${typeInfo.getSvg(iconSize)}
+            </div>
+        ` : `
+            <div class="grid-icon-box ${typeInfo.colorClass}">
+                ${typeInfo.getSvg(iconSize)}
+            </div>
+        `;
 
         return `
-        <div class="grid-item" onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', ${item.is_folder})">
+        <div class="grid-item ${isImage ? 'has-image-preview' : ''}" onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', ${item.is_folder})">
             <input type="checkbox" class="grid-checkbox hud-checkbox" value="${item.id}" ${isChecked} onclick="event.stopPropagation(); toggleSelectFile(${item.id})">
             <button class="fav-btn ${isFav ? 'active' : ''} grid-fav-btn" onclick="event.stopPropagation(); toggleFav(${item.id}, ${isFav ? 0 : 1})">${isFav ? '⭐' : '☆'}</button>
-            <div class="grid-icon-box ${typeInfo.colorClass}">
-                ${typeInfo.getSvg(30)}
+            <div class="grid-preview-box">
+                ${previewContent}
+                ${!item.is_folder && ext ? `<span class="file-badge-ext ${typeInfo.colorClass} grid-badge-overlay">${ext}</span>` : ''}
             </div>
-            <div class="grid-name">${item.name}</div>
-            ${!item.is_folder && ext ? `<span class="file-badge-ext ${typeInfo.colorClass}" style="margin-top: 6px;">${ext}</span>` : ''}
+            <div class="grid-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
         </div>
         `;
     }).join('');

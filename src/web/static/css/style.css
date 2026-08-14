@@ -690,10 +690,10 @@ a:hover {
     padding: 14px 0;
 }
 .file-grid.large {
-    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
 }
 .file-grid.small {
-    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(106px, 1fr));
 }
 
 .grid-item {
@@ -701,7 +701,7 @@ a:hover {
     background: #141720;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
-    padding: 14px 10px;
+    padding: 10px 8px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -709,6 +709,7 @@ a:hover {
     transition: all var(--duration-fast) var(--ease-out-expo);
     cursor: pointer;
     user-select: none;
+    overflow: hidden;
 }
 .grid-item:hover {
     border-color: var(--border-hover);
@@ -735,37 +736,64 @@ a:hover {
     color: var(--text-dim);
 }
 
-.grid-icon-box {
-    width: 60px;
+.grid-preview-box {
+    width: 100%;
+    height: 90px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 8px;
+    background: rgba(0, 0, 0, 0.2);
+}
+.file-grid.small .grid-preview-box {
     height: 60px;
+    margin-bottom: 6px;
+}
+
+.grid-thumbnail-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    transition: transform var(--duration-normal) var(--ease-out-expo), opacity var(--duration-fast) ease;
+    display: block;
+    background: #000;
+    opacity: 0.92;
+}
+.grid-item:hover .grid-thumbnail-img {
+    transform: scale(1.05);
+    opacity: 1;
+}
+
+.grid-badge-overlay {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    z-index: 5;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.grid-icon-box {
+    width: 52px;
+    height: 52px;
     border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 10px;
     position: relative;
     transition: transform var(--duration-fast) var(--ease-out-expo);
     background: rgba(255, 255, 255, 0.03);
 }
 .grid-item:hover .grid-icon-box {
-    transform: scale(1.06);
+    transform: scale(1.08);
 }
 .file-grid.small .grid-icon-box {
-    width: 44px;
-    height: 44px;
-    margin-bottom: 6px;
+    width: 38px;
+    height: 38px;
     border-radius: 8px;
-}
-
-.grid-icon {
-    font-size: 32px;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-.file-grid.small .grid-icon {
-    font-size: 22px;
 }
 
 /* Background tints for card icon containers */
@@ -789,6 +817,7 @@ a:hover {
     -webkit-box-orient: vertical;
     overflow: hidden;
     width: 100%;
+    line-height: 1.35;
 }
 
 /* ==========================================================================
