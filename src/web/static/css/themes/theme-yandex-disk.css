@@ -1,0 +1,75 @@
+/* ==========================================================================
+   THEME: YANDEX DISK (Clean Graphite / Iconic Yandex Yellow Accents)
+   ========================================================================== */
+
+:root {
+    --bg-main: #18181a;
+    --bg-primary: #18181a;
+    --bg-surface: #222224;
+    --bg-secondary: #222224;
+    --bg-tertiary: #2c2c2e;
+    --bg-surface-glass: rgba(34, 34, 36, 0.88);
+    --bg-elevated: rgba(44, 44, 46, 0.95);
+
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.16);
+    --border-focus: rgba(255, 204, 0, 0.4);
+    --border-active: #ffcc00;
+
+    --text-primary: #ffffff;
+    --text-secondary: #e0e0e0;
+    --text-muted: #8e8e93;
+    --text-dim: #636366;
+
+    --accent-blue: #ffcc00;
+    --accent-blue-hover: #ffd633;
+    --accent-blue-subtle: rgba(255, 204, 0, 0.12);
+    --accent-green: #34c759;
+    --accent-green-subtle: rgba(52, 199, 89, 0.12);
+    --accent-amber: #ff9500;
+    --accent-amber-subtle: rgba(255, 149, 0, 0.12);
+    --accent-red: #ff3b30;
+    --accent-red-subtle: rgba(255, 59, 48, 0.12);
+
+    --radius-panel: 10px;
+    --radius-card: 8px;
+    --radius-control: 8px;
+    --radius-badge: 4px;
+}
+
+body {
+    background-color: #18181a !important;
+}
+
+.sidebar {
+    background: #141416 !important;
+    border-right-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.hud-btn.primary {
+    background: #ffcc00 !important;
+    color: #000000 !important;
+    border-color: #ffcc00 !important;
+    font-weight: 700 !important;
+}
+
+.hud-btn.primary:hover {
+    background: #ffd633 !important;
+    box-shadow: 0 2px 12px rgba(255, 204, 0, 0.25) !important;
+}
+
+.nav-link.active {
+    background: rgba(255, 204, 0, 0.12) !important;
+    color: #ffcc00 !important;
+    border-color: rgba(255, 204, 0, 0.25) !important;
+}
+
+.drop-zone:hover, .drop-zone.active {
+    border-color: #ffcc00 !important;
+    background: rgba(255, 204, 0, 0.04) !important;
+}
+
+.status-badge {
+    border-color: rgba(255, 204, 0, 0.3) !important;
+}

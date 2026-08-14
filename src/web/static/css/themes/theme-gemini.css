@@ -1,0 +1,86 @@
+/* ==========================================================================
+   THEME: GOOGLE GEMINI (Deep Indigo / Radiant Glass / Organic Radii)
+   ========================================================================== */
+
+:root {
+    --bg-main: #131314;
+    --bg-primary: #131314;
+    --bg-surface: #1e1f20;
+    --bg-secondary: #1e1f20;
+    --bg-tertiary: #282a2c;
+    --bg-surface-glass: rgba(30, 31, 32, 0.85);
+    --bg-elevated: rgba(40, 42, 44, 0.92);
+
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.16);
+    --border-focus: rgba(138, 180, 248, 0.4);
+    --border-active: #8ab4f8;
+
+    --text-primary: #e3e3e3;
+    --text-secondary: #c4c7c5;
+    --text-muted: #8e918f;
+    --text-dim: #5e6260;
+
+    --accent-blue: #8ab4f8;
+    --accent-blue-hover: #a8c7fa;
+    --accent-blue-subtle: rgba(138, 180, 248, 0.12);
+    --accent-green: #81c995;
+    --accent-green-subtle: rgba(129, 201, 149, 0.12);
+    --accent-amber: #fdd663;
+    --accent-amber-subtle: rgba(253, 214, 99, 0.12);
+    --accent-red: #f28b82;
+    --accent-red-subtle: rgba(242, 139, 130, 0.12);
+
+    --radius-panel: 16px;
+    --radius-card: 14px;
+    --radius-control: 20px;
+    --radius-badge: 6px;
+}
+
+body {
+    background: radial-gradient(circle at 50% 0%, #1a1e29 0%, #131314 60%) !important;
+}
+
+.sidebar {
+    background: #111213 !important;
+    border-right-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.panel, .modal-panel, .wizard-panel {
+    border-radius: 16px !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(20px) !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6) !important;
+}
+
+.hud-btn.primary {
+    background: linear-gradient(135deg, #a8c7fa, #8ab4f8) !important;
+    color: #040c17 !important;
+    border: none !important;
+    font-weight: 600 !important;
+    border-radius: 20px !important;
+}
+
+.hud-btn.primary:hover {
+    background: linear-gradient(135deg, #c2e7ff, #a8c7fa) !important;
+    box-shadow: 0 4px 16px rgba(138, 180, 248, 0.3) !important;
+}
+
+.hud-btn {
+    border-radius: 20px !important;
+}
+
+.status-badge {
+    border-radius: 20px !important;
+}
+
+.nav-link {
+    border-radius: 10px !important;
+}
+
+.nav-link.active {
+    background: rgba(138, 180, 248, 0.12) !important;
+    color: #8ab4f8 !important;
+    border-color: rgba(138, 180, 248, 0.2) !important;
+}

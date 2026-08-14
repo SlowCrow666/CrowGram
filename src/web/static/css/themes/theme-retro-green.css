@@ -1,0 +1,157 @@
+/* ==========================================================================
+   THEME: RETRO GREEN CRT (Phosphor Green / Matrix Terminal / Square Angles)
+   ========================================================================== */
+
+:root {
+    --bg-main: #050b05;
+    --bg-primary: #050b05;
+    --bg-surface: #0a140a;
+    --bg-secondary: #0a140a;
+    --bg-tertiary: #0f1f0f;
+    --bg-surface-glass: rgba(10, 20, 10, 0.95);
+    --bg-elevated: rgba(15, 31, 15, 0.98);
+
+    --border-color: #1f8a1f;
+    --border-subtle: #1a6e1a;
+    --border-hover: #33ff33;
+    --border-focus: #33ff33;
+    --border-active: #00ff66;
+
+    --text-primary: #33ff33;
+    --text-secondary: #28cc28;
+    --text-muted: #1f8a1f;
+    --text-dim: #145514;
+
+    --accent-blue: #00ff66;
+    --accent-blue-hover: #66ff99;
+    --accent-blue-subtle: rgba(0, 255, 102, 0.12);
+    --accent-green: #33ff33;
+    --accent-green-subtle: rgba(51, 255, 51, 0.15);
+    --accent-amber: #ffff33;
+    --accent-amber-subtle: rgba(255, 255, 51, 0.15);
+    --accent-red: #ff3333;
+    --accent-red-subtle: rgba(255, 51, 51, 0.15);
+
+    --radius-panel: 0px;
+    --radius-card: 0px;
+    --radius-control: 0px;
+    --radius-badge: 0px;
+    --radius-full: 0px;
+}
+
+* {
+    border-radius: 0px !important;
+    font-family: 'JetBrains Mono', 'Courier New', 'Lucida Console', monospace !important;
+}
+
+body {
+    background-color: #050b05 !important;
+    color: #33ff33 !important;
+    text-shadow: 0 0 3px rgba(51, 255, 51, 0.4);
+}
+
+.sidebar {
+    background: #040804 !important;
+    border-right: 1px solid #1f8a1f !important;
+}
+
+.sidebar-header, .sidebar-footer {
+    border-color: #1f8a1f !important;
+    background: #040804 !important;
+}
+
+.panel, .modal-panel, .wizard-panel, .preview-panel {
+    background: #0a140a !important;
+    border: 1px solid #1f8a1f !important;
+    box-shadow: 0 0 15px rgba(0, 255, 102, 0.1) !important;
+}
+
+.hud-btn {
+    background: #071207 !important;
+    color: #33ff33 !important;
+    border: 1px solid #1f8a1f !important;
+}
+
+.hud-btn:hover {
+    background: #0f240f !important;
+    border-color: #33ff33 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 8px rgba(51, 255, 51, 0.3) !important;
+}
+
+.hud-btn.primary {
+    background: #00ff66 !important;
+    color: #000000 !important;
+    border-color: #00ff66 !important;
+    font-weight: 700 !important;
+    text-shadow: none !important;
+}
+
+.hud-btn.primary:hover {
+    background: #66ff99 !important;
+    box-shadow: 0 0 12px rgba(0, 255, 102, 0.5) !important;
+}
+
+.hud-input, .hud-select {
+    background: #040804 !important;
+    color: #33ff33 !important;
+    border: 1px solid #1f8a1f !important;
+}
+
+.hud-input:focus, .hud-select:focus {
+    border-color: #33ff33 !important;
+    box-shadow: 0 0 6px rgba(51, 255, 51, 0.4) !important;
+}
+
+.nav-link {
+    color: #1f8a1f !important;
+    border: 1px solid transparent !important;
+}
+
+.nav-link:hover {
+    background: rgba(51, 255, 51, 0.08) !important;
+    color: #33ff33 !important;
+}
+
+.nav-link.active {
+    background: rgba(51, 255, 51, 0.15) !important;
+    color: #00ff66 !important;
+    border: 1px solid #1f8a1f !important;
+    text-shadow: 0 0 6px rgba(0, 255, 102, 0.6) !important;
+}
+
+.data-table th {
+    border-bottom: 1px solid #1f8a1f !important;
+    color: #1f8a1f !important;
+}
+
+.data-table td {
+    border-bottom: 1px solid rgba(31, 138, 31, 0.2) !important;
+}
+
+.data-table tr:hover td {
+    background: rgba(51, 255, 51, 0.05) !important;
+}
+
+.drop-zone {
+    border: 1px dashed #1f8a1f !important;
+    background: rgba(10, 20, 10, 0.6) !important;
+}
+
+.drop-zone:hover, .drop-zone.active {
+    border-color: #00ff66 !important;
+    background: rgba(0, 255, 102, 0.08) !important;
+    box-shadow: 0 0 10px rgba(0, 255, 102, 0.2) !important;
+}
+
+.status-badge {
+    background: rgba(51, 255, 51, 0.1) !important;
+    border: 1px solid #1f8a1f !important;
+    color: #33ff33 !important;
+}
+
+.status-badge.unauth {
+    background: rgba(255, 51, 51, 0.1) !important;
+    border-color: #ff3333 !important;
+    color: #ff3333 !important;
+}

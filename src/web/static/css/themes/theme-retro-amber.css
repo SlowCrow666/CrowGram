@@ -1,0 +1,157 @@
+/* ==========================================================================
+   THEME: RETRO AMBER VT220 (Phosphor Amber / Terminal / Square Angles)
+   ========================================================================== */
+
+:root {
+    --bg-main: #0c0800;
+    --bg-primary: #0c0800;
+    --bg-surface: #1a1100;
+    --bg-secondary: #1a1100;
+    --bg-tertiary: #261a00;
+    --bg-surface-glass: rgba(26, 17, 0, 0.95);
+    --bg-elevated: rgba(38, 26, 0, 0.98);
+
+    --border-color: #996900;
+    --border-subtle: #805700;
+    --border-hover: #ffb000;
+    --border-focus: #ffb000;
+    --border-active: #ffc433;
+
+    --text-primary: #ffb000;
+    --text-secondary: #e69d00;
+    --text-muted: #996900;
+    --text-dim: #664600;
+
+    --accent-blue: #ffb000;
+    --accent-blue-hover: #ffc433;
+    --accent-blue-subtle: rgba(255, 176, 0, 0.12);
+    --accent-green: #33ff66;
+    --accent-green-subtle: rgba(51, 255, 102, 0.15);
+    --accent-amber: #ffb000;
+    --accent-amber-subtle: rgba(255, 176, 0, 0.15);
+    --accent-red: #ff4444;
+    --accent-red-subtle: rgba(255, 68, 68, 0.15);
+
+    --radius-panel: 0px;
+    --radius-card: 0px;
+    --radius-control: 0px;
+    --radius-badge: 0px;
+    --radius-full: 0px;
+}
+
+* {
+    border-radius: 0px !important;
+    font-family: 'JetBrains Mono', 'Courier New', 'Lucida Console', monospace !important;
+}
+
+body {
+    background-color: #0c0800 !important;
+    color: #ffb000 !important;
+    text-shadow: 0 0 3px rgba(255, 176, 0, 0.4);
+}
+
+.sidebar {
+    background: #080500 !important;
+    border-right: 1px solid #996900 !important;
+}
+
+.sidebar-header, .sidebar-footer {
+    border-color: #996900 !important;
+    background: #080500 !important;
+}
+
+.panel, .modal-panel, .wizard-panel, .preview-panel {
+    background: #1a1100 !important;
+    border: 1px solid #996900 !important;
+    box-shadow: 0 0 15px rgba(255, 176, 0, 0.1) !important;
+}
+
+.hud-btn {
+    background: #140d00 !important;
+    color: #ffb000 !important;
+    border: 1px solid #996900 !important;
+}
+
+.hud-btn:hover {
+    background: #2b1d00 !important;
+    border-color: #ffb000 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 8px rgba(255, 176, 0, 0.3) !important;
+}
+
+.hud-btn.primary {
+    background: #ffb000 !important;
+    color: #000000 !important;
+    border-color: #ffb000 !important;
+    font-weight: 700 !important;
+    text-shadow: none !important;
+}
+
+.hud-btn.primary:hover {
+    background: #ffc433 !important;
+    box-shadow: 0 0 12px rgba(255, 176, 0, 0.5) !important;
+}
+
+.hud-input, .hud-select {
+    background: #080500 !important;
+    color: #ffb000 !important;
+    border: 1px solid #996900 !important;
+}
+
+.hud-input:focus, .hud-select:focus {
+    border-color: #ffb000 !important;
+    box-shadow: 0 0 6px rgba(255, 176, 0, 0.4) !important;
+}
+
+.nav-link {
+    color: #996900 !important;
+    border: 1px solid transparent !important;
+}
+
+.nav-link:hover {
+    background: rgba(255, 176, 0, 0.08) !important;
+    color: #ffb000 !important;
+}
+
+.nav-link.active {
+    background: rgba(255, 176, 0, 0.15) !important;
+    color: #ffc433 !important;
+    border: 1px solid #996900 !important;
+    text-shadow: 0 0 6px rgba(255, 176, 0, 0.6) !important;
+}
+
+.data-table th {
+    border-bottom: 1px solid #996900 !important;
+    color: #996900 !important;
+}
+
+.data-table td {
+    border-bottom: 1px solid rgba(153, 105, 0, 0.2) !important;
+}
+
+.data-table tr:hover td {
+    background: rgba(255, 176, 0, 0.05) !important;
+}
+
+.drop-zone {
+    border: 1px dashed #996900 !important;
+    background: rgba(26, 17, 0, 0.6) !important;
+}
+
+.drop-zone:hover, .drop-zone.active {
+    border-color: #ffb000 !important;
+    background: rgba(255, 176, 0, 0.08) !important;
+    box-shadow: 0 0 10px rgba(255, 176, 0, 0.2) !important;
+}
+
+.status-badge {
+    background: rgba(255, 176, 0, 0.1) !important;
+    border: 1px solid #996900 !important;
+    color: #ffb000 !important;
+}
+
+.status-badge.unauth {
+    background: rgba(255, 68, 68, 0.1) !important;
+    border-color: #ff4444 !important;
+    color: #ff4444 !important;
+}

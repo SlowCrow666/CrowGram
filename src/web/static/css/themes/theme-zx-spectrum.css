@@ -1,0 +1,165 @@
+/* ==========================================================================
+   THEME: ZX SPECTRUM 8-BIT (High Contrast / 8-Color Palette / 2px Block Borders)
+   ========================================================================== */
+
+:root {
+    --bg-main: #000000;
+    --bg-primary: #000000;
+    --bg-surface: #000000;
+    --bg-secondary: #000000;
+    --bg-tertiary: #111111;
+    --bg-surface-glass: rgba(0, 0, 0, 0.98);
+    --bg-elevated: rgba(0, 0, 0, 1);
+
+    --border-color: #00e5e5;
+    --border-subtle: #007777;
+    --border-hover: #e5e500;
+    --border-focus: #e5e500;
+    --border-active: #00e5e5;
+
+    --text-primary: #ffffff;
+    --text-secondary: #00e5e5;
+    --text-muted: #e5e500;
+    --text-dim: #777777;
+
+    --accent-blue: #00e5e5;
+    --accent-blue-hover: #ffffff;
+    --accent-blue-subtle: rgba(0, 229, 229, 0.15);
+    --accent-green: #00e500;
+    --accent-green-subtle: rgba(0, 229, 0, 0.15);
+    --accent-amber: #e5e500;
+    --accent-amber-subtle: rgba(229, 229, 0, 0.15);
+    --accent-red: #e50000;
+    --accent-red-subtle: rgba(229, 0, 0, 0.15);
+
+    --radius-panel: 0px;
+    --radius-card: 0px;
+    --radius-control: 0px;
+    --radius-badge: 0px;
+    --radius-full: 0px;
+}
+
+* {
+    border-radius: 0px !important;
+    font-family: 'JetBrains Mono', 'Courier New', monospace !important;
+}
+
+body {
+    background-color: #000000 !important;
+    color: #ffffff !important;
+}
+
+.sidebar {
+    background: #000000 !important;
+    border-right: 2px solid #00e5e5 !important;
+}
+
+.sidebar-header, .sidebar-footer {
+    border-color: #00e5e5 !important;
+    background: #000000 !important;
+}
+
+.panel, .modal-panel, .wizard-panel, .preview-panel {
+    background: #000000 !important;
+    border: 2px solid #00e5e5 !important;
+    box-shadow: 4px 4px 0px #e500e5 !important;
+}
+
+.hud-btn {
+    background: #000000 !important;
+    color: #00e5e5 !important;
+    border: 2px solid #00e5e5 !important;
+    font-weight: 700 !important;
+}
+
+.hud-btn:hover {
+    background: #00e5e5 !important;
+    color: #000000 !important;
+    border-color: #00e5e5 !important;
+}
+
+.hud-btn.primary {
+    background: #e5e500 !important;
+    color: #000000 !important;
+    border: 2px solid #e5e500 !important;
+    font-weight: 800 !important;
+}
+
+.hud-btn.primary:hover {
+    background: #ffffff !important;
+    border-color: #ffffff !important;
+    color: #000000 !important;
+}
+
+.hud-btn.danger {
+    background: #e50000 !important;
+    color: #ffffff !important;
+    border: 2px solid #e50000 !important;
+}
+
+.hud-btn.danger:hover {
+    background: #ffffff !important;
+    color: #e50000 !important;
+}
+
+.hud-input, .hud-select {
+    background: #000000 !important;
+    color: #e5e500 !important;
+    border: 2px solid #00e5e5 !important;
+}
+
+.hud-input:focus, .hud-select:focus {
+    border-color: #e5e500 !important;
+}
+
+.nav-link {
+    color: #00e5e5 !important;
+    border: 1px solid transparent !important;
+}
+
+.nav-link:hover {
+    background: #0000e5 !important;
+    color: #ffffff !important;
+}
+
+.nav-link.active {
+    background: #e500e5 !important;
+    color: #ffffff !important;
+    border: 1px solid #ffffff !important;
+}
+
+.data-table th {
+    border-bottom: 2px solid #00e5e5 !important;
+    color: #e5e500 !important;
+}
+
+.data-table td {
+    border-bottom: 1px solid #333333 !important;
+}
+
+.data-table tr:hover td {
+    background: #0000e5 !important;
+    color: #ffffff !important;
+}
+
+.drop-zone {
+    border: 2px dashed #e5e500 !important;
+    background: #000000 !important;
+}
+
+.drop-zone:hover, .drop-zone.active {
+    border-color: #00e500 !important;
+    background: #0000e5 !important;
+}
+
+.status-badge {
+    background: #000000 !important;
+    border: 2px solid #00e500 !important;
+    color: #00e500 !important;
+    font-weight: 700 !important;
+}
+
+.status-badge.unauth {
+    border-color: #e50000 !important;
+    color: #e50000 !important;
+}

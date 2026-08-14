@@ -1132,21 +1132,26 @@ function bindModalEvents() {
     });
 }
 
-function bindGlobalEvents() {
-    const themeSwitcher = document.getElementById('themeSwitcher');
+function switchTheme(themeName) {
+    const theme = themeName || 'default';
+    localStorage.setItem('crowgram_theme', theme);
     const themeLink = document.getElementById('themeStylesheet');
+    if (themeLink) {
+        if (theme === 'default') {
+            themeLink.href = '';
+        } else {
+            themeLink.href = `/static/css/themes/theme-${theme}.css`;
+        }
+    }
+    document.querySelectorAll('.crow-theme-selector').forEach(sel => {
+        sel.value = theme;
+    });
+}
+window.switchTheme = switchTheme;
+
+function bindGlobalEvents() {
     const savedTheme = localStorage.getItem('crowgram_theme') || 'default';
-    if (themeSwitcher) {
-        themeSwitcher.value = savedTheme;
-        themeSwitcher.addEventListener('change', (e) => {
-            const theme = e.target.value;
-            localStorage.setItem('crowgram_theme', theme);
-            if (themeLink) themeLink.href = `/themes/${theme}/theme.css`;
-        });
-    }
-    if (themeLink && savedTheme !== 'default') {
-        themeLink.href = `/themes/${savedTheme}/theme.css`;
-    }
+    switchTheme(savedTheme);
 
     document.getElementById('navDriveBtn')?.addEventListener('click', (e) => {
         e.preventDefault(); isTrashView = false; currentFolderId = 0; loadFiles();

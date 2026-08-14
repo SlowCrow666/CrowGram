@@ -1,0 +1,163 @@
+/* ==========================================================================
+   THEME: DENDY / NES FAMICOM 8-BIT (Crimson / Ivory / Pixel Borders)
+   ========================================================================== */
+
+:root {
+    --bg-main: #181c24;
+    --bg-primary: #181c24;
+    --bg-surface: #241416;
+    --bg-secondary: #241416;
+    --bg-tertiary: #381a1d;
+    --bg-surface-glass: rgba(36, 20, 22, 0.96);
+    --bg-elevated: rgba(56, 26, 29, 0.98);
+
+    --border-color: #8b1d24;
+    --border-subtle: #631419;
+    --border-hover: #ffd13b;
+    --border-focus: #ffd13b;
+    --border-active: #ffd13b;
+
+    --text-primary: #f5eedb;
+    --text-secondary: #dcd3be;
+    --text-muted: #a69880;
+    --text-dim: #6e6452;
+
+    --accent-blue: #ffd13b;
+    --accent-blue-hover: #ffe47a;
+    --accent-blue-subtle: rgba(255, 209, 59, 0.15);
+    --accent-green: #38b764;
+    --accent-green-subtle: rgba(56, 183, 100, 0.15);
+    --accent-amber: #ffd13b;
+    --accent-amber-subtle: rgba(255, 209, 59, 0.15);
+    --accent-red: #c4202b;
+    --accent-red-subtle: rgba(196, 32, 43, 0.2);
+
+    --radius-panel: 0px;
+    --radius-card: 0px;
+    --radius-control: 0px;
+    --radius-badge: 0px;
+    --radius-full: 0px;
+}
+
+* {
+    border-radius: 0px !important;
+    font-family: 'JetBrains Mono', 'Courier New', monospace !important;
+}
+
+body {
+    background-color: #181c24 !important;
+    color: #f5eedb !important;
+}
+
+.sidebar {
+    background: #12141a !important;
+    border-right: 2px solid #8b1d24 !important;
+}
+
+.sidebar-header, .sidebar-footer {
+    border-color: #8b1d24 !important;
+    background: #0e1014 !important;
+}
+
+.panel, .modal-panel, .wizard-panel, .preview-panel {
+    background: #241416 !important;
+    border: 2px solid #8b1d24 !important;
+    box-shadow: 4px 4px 0px #0e1014 !important;
+}
+
+.hud-btn {
+    background: #381a1d !important;
+    color: #f5eedb !important;
+    border: 2px solid #8b1d24 !important;
+    font-weight: 700 !important;
+}
+
+.hud-btn:hover {
+    background: #8b1d24 !important;
+    color: #ffd13b !important;
+    border-color: #ffd13b !important;
+}
+
+.hud-btn.primary {
+    background: #ffd13b !important;
+    color: #000000 !important;
+    border: 2px solid #ffd13b !important;
+    font-weight: 800 !important;
+}
+
+.hud-btn.primary:hover {
+    background: #ffe47a !important;
+    border-color: #ffe47a !important;
+    box-shadow: 0 0 10px rgba(255, 209, 59, 0.4) !important;
+}
+
+.hud-btn.danger {
+    background: #c4202b !important;
+    color: #ffffff !important;
+    border: 2px solid #c4202b !important;
+}
+
+.hud-btn.danger:hover {
+    background: #e63946 !important;
+}
+
+.hud-input, .hud-select {
+    background: #140b0d !important;
+    color: #ffd13b !important;
+    border: 2px solid #8b1d24 !important;
+}
+
+.hud-input:focus, .hud-select:focus {
+    border-color: #ffd13b !important;
+}
+
+.nav-link {
+    color: #a69880 !important;
+    border: 1px solid transparent !important;
+}
+
+.nav-link:hover {
+    background: rgba(139, 29, 36, 0.4) !important;
+    color: #ffd13b !important;
+}
+
+.nav-link.active {
+    background: #8b1d24 !important;
+    color: #ffd13b !important;
+    border: 1px solid #ffd13b !important;
+}
+
+.data-table th {
+    border-bottom: 2px solid #8b1d24 !important;
+    color: #ffd13b !important;
+}
+
+.data-table td {
+    border-bottom: 1px solid rgba(139, 29, 36, 0.3) !important;
+}
+
+.data-table tr:hover td {
+    background: rgba(139, 29, 36, 0.3) !important;
+}
+
+.drop-zone {
+    border: 2px dashed #8b1d24 !important;
+    background: #1c0e10 !important;
+}
+
+.drop-zone:hover, .drop-zone.active {
+    border-color: #ffd13b !important;
+    background: rgba(255, 209, 59, 0.08) !important;
+}
+
+.status-badge {
+    background: #241416 !important;
+    border: 2px solid #38b764 !important;
+    color: #38b764 !important;
+    font-weight: 700 !important;
+}
+
+.status-badge.unauth {
+    border-color: #c4202b !important;
+    color: #c4202b !important;
+}

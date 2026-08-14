@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CrowGram — Облачное хранилище</title>
     <link rel="stylesheet" href="/static/css/style.css">
-    <link id="themeStylesheet" rel="stylesheet" href="/themes/default/theme.css">
+    <link id="themeStylesheet" rel="stylesheet" href="">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="/static/js/artplayer.js"></script>
     <style>
@@ -73,10 +73,14 @@
                         <option value="en" data-i18n="header.langEn">🇬🇧 English</option>
                     </select>
                     <!-- Переключатель темы -->
-                    <select id="themeSwitcher" class="hud-select">
+                    <select id="themeSwitcher" class="hud-select crow-theme-selector" onchange="switchTheme(this.value)">
                         <option value="default" data-i18n="header.themeDefault">🎨 Linear Dark</option>
-                        <option value="telegram_dark" data-i18n="header.themeTGDark">🎨 TG Dark</option>
-                        <option value="macos_light" data-i18n="header.themeMacLight">🎨 Mac Light</option>
+                        <option value="gemini" data-i18n="header.themeGemini">✨ Google Gemini</option>
+                        <option value="yandex-disk" data-i18n="header.themeYandexDisk">🟡 Яндекс Диск</option>
+                        <option value="retro-green" data-i18n="header.themeRetroGreen">📟 CRT Зеленый терминал</option>
+                        <option value="retro-amber" data-i18n="header.themeRetroAmber">📺 Янтарный VT220</option>
+                        <option value="zx-spectrum" data-i18n="header.themeZXSpectrum">🕹️ ZX Spectrum (8-bit)</option>
+                        <option value="dendy" data-i18n="header.themeDendy">🎮 Dendy / NES (8-bit)</option>
                     </select>
                     <span class="status-badge unauth" id="systemStatus" style="cursor: pointer;" data-i18n="header.statusUnauth">🔴 ТРЕБУЕТСЯ АВТОРИЗАЦИЯ</span>
                 </div>
@@ -383,6 +387,18 @@
                     <select id="settingsLangSelect" class="hud-select crow-lang-selector" onchange="window.CrowI18n.setLanguage(this.value)">
                         <option value="ru">🇷🇺 Русский</option>
                         <option value="en">🇬🇧 English</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="settings.themeSelectLabel">ТЕМА ОФОРМЛЕНИЯ:</label>
+                    <select id="settingsThemeSelect" class="hud-select crow-theme-selector" onchange="switchTheme(this.value)">
+                        <option value="default" data-i18n="header.themeDefault">🎨 Linear Dark</option>
+                        <option value="gemini" data-i18n="header.themeGemini">✨ Google Gemini</option>
+                        <option value="yandex-disk" data-i18n="header.themeYandexDisk">🟡 Яндекс Диск</option>
+                        <option value="retro-green" data-i18n="header.themeRetroGreen">📟 CRT Зеленый терминал</option>
+                        <option value="retro-amber" data-i18n="header.themeRetroAmber">📺 Янтарный VT220</option>
+                        <option value="zx-spectrum" data-i18n="header.themeZXSpectrum">🕹️ ZX Spectrum (8-bit)</option>
+                        <option value="dendy" data-i18n="header.themeDendy">🎮 Dendy / NES (8-bit)</option>
                     </select>
                 </div>
                 <div class="form-group">
