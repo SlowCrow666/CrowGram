@@ -13,31 +13,86 @@ let clipboardItems = null;
 
 window.CrowAPI = {
     plugins: {},
-    hooks: { onFileClick: [], onAppReady: [] },
-    
-    registerPlugin: function(name, plugin) {
-        this.plugins[name] = plugin;
-        try { if (plugin.init) plugin.init(this); } catch (e) {}
-    },
-    
-    addHook: function(hookName, callback) {
-        if (this.hooks[hookName]) this.hooks[hookName].push(callback);
-    },
-    
-    emit: function(hookName, ...args) {
-        if (this.hooks[hookName]) {
-            let handled = false;
-            for (let cb of this.hooks[hookName]) {
-                try { if (cb(...args) === true) handled = true; } catch (e) {}
-            }
-            return handled;
+    hooks: { onFileClick: [], onAppReady: [], onFolderChange: [], languageChanged: [], themeChanged: [] },
+    events: {},
+
+    registerPlugin: function(nameOrManifest, plugin) {
+        let name = nameOrManifest;
+        let pluginObj = plugin;
+        let manifest = {};
+
+        if (typeof nameOrManifest === 'object' && nameOrManifest !== null) {
+            manifest = nameOrManifest;
+            name = manifest.name || manifest.id;
+            pluginObj = plugin || manifest;
+        } else if (plugin && plugin.manifest) {
+            manifest = plugin.manifest;
         }
-        return false;
+
+        if (!name) {
+            console.error('Plugin registration failed: missing plugin name');
+            return;
+        }
+
+        this.plugins[name] = {
+            manifest: manifest,
+            instance: pluginObj
+        };
+
+        try {
+            if (pluginObj && typeof pluginObj.init === 'function') {
+                pluginObj.init(this);
+            }
+        } catch (e) {
+            console.error(`Error initializing plugin "${name}":`, e);
+        }
     },
+
+    on: function(event, callback) {
+        if (!this.events[event]) this.events[event] = [];
+        this.events[event].push(callback);
+        if (!this.hooks[event]) this.hooks[event] = [];
+        this.hooks[event].push(callback);
+    },
+
+    off: function(event, callback) {
+        if (this.events[event]) {
+            this.events[event] = this.events[event].filter(cb => cb !== callback);
+        }
+        if (this.hooks[event]) {
+            this.hooks[event] = this.hooks[event].filter(cb => cb !== callback);
+        }
+    },
+
+    addHook: function(hookName, callback) {
+        this.on(hookName, callback);
+    },
+
+    emit: function(event, ...args) {
+        let handled = false;
+        const cbs = (this.events[event] || []).concat(this.hooks[event] || []);
+        const uniqueCbs = Array.from(new Set(cbs));
+        for (const cb of uniqueCbs) {
+            try {
+                if (cb(...args) === true) handled = true;
+            } catch (e) {
+                console.error(`Error in event listener for "${event}":`, e);
+            }
+        }
+        return handled;
+    },
+
+    getCurrentDrive: function() { return currentDriveId; },
+    getCurrentFolder: function() { return currentFolderId; },
+    getFiles: function() { return window.currentFolderFiles || []; },
+    getAllFiles: function() { return window.allItems || []; },
+    getTheme: function() { return localStorage.getItem('crowgram_theme') || 'default'; },
+    getLanguage: function() { return window.CrowI18n ? window.CrowI18n.currentLang : 'ru'; },
+    reloadFiles: async function() { return await loadFiles(); },
 
     readFile: async function(fileId) {
         const res = await fetch('/api/download/' + fileId);
-        if (!res.ok) throw new Error('Ошибка чтения файла');
+        if (!res.ok) throw new Error('Ошибка чтения файла (' + res.status + ')');
         return await res.text();
     },
 
@@ -48,7 +103,7 @@ window.CrowAPI = {
         fd.append('drive_id', currentDriveId);
         fd.append('parent_id', currentFolderId);
         const res = await fetch('/api/upload', { method: 'POST', body: fd });
-        if (!res.ok) throw new Error('Ошибка сохранения');
+        if (!res.ok) throw new Error('Ошибка сохранения (' + res.status + ')');
         await loadFiles();
         return fileId;
     },
@@ -62,6 +117,46 @@ window.CrowAPI = {
             bar.innerHTML = html;
             mounts.appendChild(bar);
             return bar;
+        },
+        createModal: function(options = {}) {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.id = options.id || ('modal_' + Math.random().toString(36).substr(2, 9));
+            overlay.style.display = 'flex';
+            overlay.style.zIndex = options.zIndex || '2500';
+
+            const panel = document.createElement('div');
+            panel.className = 'modal-panel ' + (options.panelClass || '');
+            if (options.maxWidth) panel.style.maxWidth = options.maxWidth;
+            if (options.width) panel.style.width = options.width;
+
+            panel.innerHTML = `
+                <div class="modal-header">
+                    <h3 class="panel-title">${escapeHtml(options.title || '')}</h3>
+                    <button class="close-btn modal-close-x">✕</button>
+                </div>
+                <div class="modal-body">${options.body || ''}</div>
+                ${options.footer ? `<div class="modal-footer" style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;">${options.footer}</div>` : ''}
+            `;
+
+            overlay.appendChild(panel);
+            document.body.appendChild(overlay);
+
+            const close = () => {
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.remove(), 140);
+            };
+
+            panel.querySelector('.modal-close-x')?.addEventListener('click', close);
+            overlay.addEventListener('mousedown', (e) => {
+                if (e.target === overlay) close();
+            });
+
+            return {
+                overlay,
+                panel,
+                close
+            };
         }
     }
 };
@@ -75,12 +170,15 @@ document.addEventListener('DOMContentLoaded', () => {
     initAppCore();
 });
 
-function initAppCore() {
-    loadConfigSettings();
-    loadDrives();
-    loadFiles();
-    loadPlugins();
+async function initAppCore() {
+    await loadConfigSettings();
+    await loadDrives();
+    await loadFiles();
+    await loadPlugins();
     setupDragAndDrop();
+    if (window.CrowAPI && typeof window.CrowAPI.emit === 'function') {
+        window.CrowAPI.emit('onAppReady');
+    }
 }
 
 async function loadConfigSettings() {
@@ -1022,6 +1120,9 @@ function renderBreadcrumbs() {
 function navigateTo(folderId) {
     currentFolderId = folderId;
     loadFiles();
+    if (window.CrowAPI && typeof window.CrowAPI.emit === 'function') {
+        window.CrowAPI.emit('onFolderChange', currentFolderId, currentDriveId);
+    }
 }
 
 function selectDrive(driveId) {
@@ -1030,6 +1131,9 @@ function selectDrive(driveId) {
     isTrashView = false;
     loadDrives();
     loadFiles();
+    if (window.CrowAPI && typeof window.CrowAPI.emit === 'function') {
+        window.CrowAPI.emit('onFolderChange', currentFolderId, currentDriveId);
+    }
 }
 
 function formatBytes(bytes) {
@@ -1339,6 +1443,9 @@ function switchTheme(themeName) {
     document.querySelectorAll('.crow-theme-selector').forEach(sel => {
         sel.value = theme;
     });
+    if (window.CrowAPI && typeof window.CrowAPI.emit === 'function') {
+        window.CrowAPI.emit('themeChanged', theme);
+    }
 }
 window.switchTheme = switchTheme;
 
