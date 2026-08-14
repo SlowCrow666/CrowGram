@@ -864,7 +864,23 @@ function escapeHtml(str) {
 
 function safeToggleModal(modalId, displayStyle) {
     const modal = document.getElementById(modalId);
-    if (modal) modal.style.display = displayStyle;
+    if (!modal) return;
+    if (displayStyle === 'none') {
+        modal.style.transition = 'opacity 0.12s var(--ease-in-expo, ease-in)';
+        modal.style.opacity = '0';
+        setTimeout(() => {
+            modal.style.display = 'none';
+            modal.style.opacity = '';
+            modal.style.transition = '';
+        }, 120);
+    } else {
+        modal.style.display = displayStyle || 'flex';
+        modal.style.opacity = '0';
+        modal.style.transition = 'opacity 0.16s var(--ease-out-expo, ease-out)';
+        requestAnimationFrame(() => {
+            modal.style.opacity = '1';
+        });
+    }
 }
 
 function showTgAuthMsg(text, type = 'info') {
@@ -873,17 +889,17 @@ function showTgAuthMsg(text, type = 'info') {
     msgEl.style.display = 'block';
     msgEl.textContent = text;
     if (type === 'error') {
-        msgEl.style.background = 'rgba(239, 68, 68, 0.15)';
-        msgEl.style.color = 'var(--accent-red)';
+        msgEl.style.background = 'var(--accent-red-subtle, rgba(239, 68, 68, 0.12))';
+        msgEl.style.color = '#f87171';
         msgEl.style.border = '1px solid rgba(239, 68, 68, 0.3)';
     } else if (type === 'success') {
-        msgEl.style.background = 'rgba(16, 185, 129, 0.15)';
-        msgEl.style.color = 'var(--accent-green)';
+        msgEl.style.background = 'var(--accent-green-subtle, rgba(16, 185, 129, 0.12))';
+        msgEl.style.color = '#6ee7b7';
         msgEl.style.border = '1px solid rgba(16, 185, 129, 0.3)';
     } else {
-        msgEl.style.background = 'rgba(59, 130, 246, 0.15)';
-        msgEl.style.color = 'var(--accent-blue)';
-        msgEl.style.border = '1px solid rgba(59, 130, 246, 0.3)';
+        msgEl.style.background = 'var(--accent-blue-subtle, rgba(56, 189, 248, 0.12))';
+        msgEl.style.color = '#7dd3fc';
+        msgEl.style.border = '1px solid rgba(56, 189, 248, 0.3)';
     }
 }
 
@@ -915,6 +931,15 @@ function bindModalEvents() {
         safeToggleModal('previewModal', 'none');
         const content = document.getElementById('previewContent');
         if (content) content.innerHTML = '';
+    });
+
+    // Close on overlay backdrop click
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.addEventListener('mousedown', (e) => {
+            if (e.target === overlay) {
+                overlay.style.display = 'none';
+            }
+        });
     });
 
     document.getElementById('viewSwitcher')?.addEventListener('change', (e) => {
