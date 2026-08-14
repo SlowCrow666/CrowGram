@@ -7,6 +7,14 @@
     <link rel="stylesheet" href="/static/css/style.css">
     <link id="themeStylesheet" rel="stylesheet" href="/themes/default/theme.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="/static/js/artplayer.js"></script>
+    <style>
+        .plugin-bottom-bar {
+            position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000;
+            background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px);
+            border-top: 1px solid var(--border-color);
+        }
+    </style>
 </head>
 <body>
     <aside class="sidebar" id="sidebar">
@@ -17,141 +25,513 @@
                         <path d="M3 12h18M3 6h18M3 18h18"/>
                     </svg>
                 </button>
+                <span class="tooltip" id="sidebarTooltip" data-i18n="sidebar.collapseMenu">Свернуть меню</span>
             </div>
             <h2 class="sidebar-logo"><span>CROWGRAM</span></h2>
         </div>
         
         <nav class="sidebar-nav">
-            <a href="#" class="nav-link active" id="navDriveBtn"><span class="nav-icon">📁</span><span class="nav-text">Оглавление</span></a>
-            <a href="#" class="nav-link" id="navTrashBtn"><span class="nav-icon">🗑</span><span class="nav-text">Корзина</span></a>
-            <a href="#" class="nav-link" id="navCommanderBtn"><span class="nav-icon">⚔️</span><span class="nav-text">CrowCommander</span></a>
+            <a href="#" class="nav-link active" id="navDriveBtn"><span class="nav-icon">📁</span><span class="nav-text" data-i18n="sidebar.overview">Оглавление</span></a>
+            <a href="#" class="nav-link" id="navTrashBtn"><span class="nav-icon">🗑</span><span class="nav-text" data-i18n="sidebar.trash">Корзина</span></a>
+            <a href="#" class="nav-link" id="navCommanderBtn"><span class="nav-icon">⚔️</span><span class="nav-text" data-i18n="sidebar.commander">CrowCommander</span></a>
             <div class="nav-divider"></div>
-            <div style="padding: 10px 20px; font-size: 11px; font-weight: 600; color: #8892b0; display: flex; justify-content: space-between;">
-                <span>ДИСКИ</span>
-                <button id="openDriveModalBtn" style="background: none; border: none; color: var(--accent-blue); cursor: pointer; font-size: 18px;">+</button>
+            <div style="padding: 10px 20px; font-size: 11px; font-weight: 600; color: #8892b0; display: flex; justify-content: space-between; align-items: center;">
+                <span data-i18n="sidebar.drives">ДИСКИ</span>
+                <button id="openDriveModalBtn" data-i18n-title="sidebar.addDrive" title="Добавить диск" style="background: none; border: none; color: var(--accent-blue); cursor: pointer; font-size: 18px; line-height: 1;">+</button>
             </div>
             <div id="drivesList"></div>
             <div class="nav-divider"></div>
-            <a href="#" class="nav-link" id="navPluginsBtn"><span class="nav-icon">🧩</span><span class="nav-text">Плагины</span></a>
-            <a href="#" class="nav-link" id="navSettingsBtn"><span class="nav-icon">⚙️</span><span class="nav-text">Настройки</span></a>
+            <a href="#" class="nav-link" id="navWizardBtn"><span class="nav-icon">🧙‍♂️</span><span class="nav-text" data-i18n="sidebar.wizard">Мастер настройки</span></a>
+            <a href="#" class="nav-link" id="navPluginsBtn"><span class="nav-icon">🧩</span><span class="nav-text" data-i18n="sidebar.plugins">Плагины</span></a>
+            <a href="#" class="nav-link" id="navSettingsBtn"><span class="nav-icon">⚙️</span><span class="nav-text" data-i18n="sidebar.settings">Настройки</span></a>
         </nav>
+
+        <div class="sidebar-footer">
+            <div class="stats-widget-mini">
+                <div class="stats-info">
+                    <span class="stats-title" data-i18n="sidebar.spaceUsed">ЗАНЯТО МЕСТА</span>
+                    <span class="stats-value" id="statsSize">0 MB</span>
+                </div>
+                <div class="stats-details">
+                    <span><span data-i18n="sidebar.filesCount">Файлы:</span> <b id="statsFiles">0</b></span>
+                    <span><span data-i18n="sidebar.foldersCount">Папки:</span> <b id="statsFolders">0</b></span>
+                </div>
+            </div>
+        </div>
     </aside>
 
     <div class="app-wrapper" id="appWrapper">
         <div class="hud-container">
             <header class="hud-header">
-                <div class="header-left"><h1 class="hud-title">CROWGRAM CLOUD</h1></div>
+                <div class="header-left"><h1 class="hud-title" id="panelHeaderTitle" data-i18n="header.title">CROWGRAM CLOUD</h1></div>
                 <div class="hud-controls">
-                    <span class="status-badge" id="systemStatus">СИСТЕМА ГОТОВА</span>
+                    <!-- Селектор языка -->
+                    <select id="langSwitcher" class="hud-select crow-lang-selector" style="margin-right: 8px;" onchange="window.CrowI18n.setLanguage(this.value)">
+                        <option value="ru" data-i18n="header.langRu">🇷🇺 Русский</option>
+                        <option value="en" data-i18n="header.langEn">🇬🇧 English</option>
+                    </select>
+                    <!-- Переключатель темы -->
+                    <select id="themeSwitcher" class="hud-select" style="margin-right: 8px;">
+                        <option value="default" data-i18n="header.themeDefault">🎨 Тема: Сloud Dark</option>
+                        <option value="telegram_dark" data-i18n="header.themeTGDark">🎨 Тема: TG Dark</option>
+                        <option value="macos_light" data-i18n="header.themeMacLight">🎨 Тема: Mac Light</option>
+                    </select>
+                    <span class="status-badge unauth" id="systemStatus" style="cursor: pointer;" data-i18n="header.statusUnauth">🔴 ТРЕБУЕТСЯ АВТОРИЗАЦИЯ</span>
                 </div>
             </header>
 
             <main class="hud-main">
                 <div class="drop-zone" id="dropZone">
-                    <p>ПЕРЕТАЩИТЕ ФАЙЛЫ ДЛЯ ЗАГРУЗКИ</p>
+                    <div class="drop-zone-content">
+                        <p data-i18n="toolbar.dropZoneText">ПЕРЕТАЩИТЕ ФАЙЛЫ ИЛИ ПАПКИ ДЛЯ ЗАГРУЗКИ В ГНЕЗДО</p>
+                    </div>
                     <input type="file" id="fileInput" hidden multiple>
                 </div>
+
                 <div class="panel">
-                    <div class="table-responsive">
+                    <div class="table-toolbar">
+                        <div class="breadcrumbs" id="breadcrumbs"></div>
+
+                        <div class="toolbar-controls">
+                            <button class="hud-btn primary" id="pasteBtn" style="display: none; background-color: var(--accent-green, #2ec4b6);" data-i18n="toolbar.pasteHere">📋 Вставить сюда</button>
+                            <select id="viewSwitcher" class="hud-select" style="margin-right: 12px; border-color: var(--accent-blue);">
+                                <option value="table" data-i18n="toolbar.viewTable">📑 Таблица</option>
+                                <option value="grid_large" data-i18n="toolbar.viewGridLarge">🔲 Крупные значки</option>
+                                <option value="grid_small" data-i18n="toolbar.viewGridSmall">🔳 Мелкие значки</option>
+                            </select>
+                            <input type="text" id="searchInput" class="hud-input" data-i18n-placeholder="toolbar.searchPlaceholder" placeholder="Поиск файлов...">
+                            <select id="sortSelect" class="hud-select">
+                                <option value="date_desc" data-i18n="toolbar.sortDateDesc">Сначала новые</option>
+                                <option value="date_asc" data-i18n="toolbar.sortDateAsc">Сначала старые</option>
+                                <option value="name_asc" data-i18n="toolbar.sortNameAsc">Имя (А-Я)</option>
+                                <option value="name_desc" data-i18n="toolbar.sortNameDesc">Имя (Я-А)</option>
+                                <option value="size_desc" data-i18n="toolbar.sortSizeDesc">Размер (Крупные)</option>
+                                <option value="size_asc" data-i18n="toolbar.sortSizeAsc">Размер (Мелкие)</option>
+                            </select>
+                            <button class="hud-btn primary" id="createFolderBtn" data-i18n="toolbar.newFolder">+ Новая папка</button>
+                            <button class="hud-btn danger" id="emptyTrashBtn" style="display: none;" data-i18n="toolbar.emptyTrash">🗑 Очистить корзину</button>
+                        </div>
+                    </div>
+
+                    <div class="panel-header" id="batchPanelContainer" style="display: none;">
+                        <div class="batch-panel" id="batchPanel">
+                            <span class="batch-count" id="batchCount">Выбрано: 0</span>
+                            <button class="hud-btn primary" id="downloadFilesBtn" data-i18n="batch.downloadFiles">📄 Скачать файлами</button>
+                            <button class="hud-btn primary" id="downloadZipBtn" data-i18n="batch.downloadZip">📦 Скачать ZIP</button>
+                            <button class="hud-btn primary" id="moveBatchBtn" style="background-color: var(--accent-blue);" data-i18n="batch.move">📋 Перенести</button>
+                            <button class="hud-btn danger" id="deleteBatchBtn" data-i18n="batch.toTrash">🗑 В корзину</button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive" id="tableViewContainer">
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th><input type="checkbox" id="selectAllCheckbox"></th>
-                                    <th>ИМЯ</th>
-                                    <th>РАЗМЕР</th>
-                                    <th>ДАТА</th>
+                                    <th style="width: 30px;"><input type="checkbox" id="selectAllCheckbox" class="hud-checkbox"></th>
+                                    <th style="width: 30px;" data-i18n="table.colFav">⭐</th>
+                                    <th data-i18n="table.colName">ИМЯ</th>
+                                    <th data-i18n="table.colSize">РАЗМЕР</th>
+                                    <th data-i18n="table.colDate">ДАТА</th>
+                                    <th style="text-align: right;" data-i18n="table.colActions">ДЕЙСТВИЯ</th>
                                 </tr>
                             </thead>
                             <tbody id="fileList"></tbody>
                         </table>
                     </div>
+
+                    <div class="file-grid" id="gridViewContainer" style="display: none;"></div>
                 </div>
             </main>
         </div>
+        <div id="plugin-mounts"></div>
     </div>
 
-    <!-- ПОЛНЫЙ МАСТЕР УСТАНОВКИ -->
-    <div class="modal-overlay" id="wizardModal" style="display: none; z-index: 3000;">
-        <div class="modal-panel" style="max-width: 520px; width: 100%;">
+    <!-- МЕНЕДЖЕР ЗАГРУЗОК -->
+    <div class="upload-queue-widget" id="queueWidget" style="display: none;">
+        <div class="queue-header" id="queueHeader">
+            <span class="queue-title">Загрузка файлов (<span id="queueProgressCount">0/0</span>)</span>
+            <div>
+                <button class="queue-toggle-btn" id="queueClearBtn" data-i18n-title="queue.clearCompleted" title="Очистить завершенные" style="margin-right: 8px;">✖</button>
+                <button class="queue-toggle-btn" id="queueToggleBtn" data-i18n-title="queue.toggle" title="Свернуть/Развернуть">−</button>
+            </div>
+        </div>
+        <div class="queue-body" id="queueBody"></div>
+    </div>
+
+    <!-- МАСТЕР ПЕРВОГО ЗАПУСКА (SETUP WIZARD) -->
+    <div class="modal-overlay" id="setupWizardModal" style="display: none; z-index: 2500;">
+        <div class="modal-panel wizard-panel">
+            <div class="wizard-header">
+                <div>
+                    <h2 class="panel-title" data-i18n="wizard.title" style="font-size: 15px; font-weight: 700;">⚔️ МАСТЕР НАСТРОЙКИ CROWGRAM</h2>
+                    <p data-i18n="wizard.subtitle" style="font-size: 11px; color: #8b949e; margin-top: 2px;">Быстрый старт: ваше персональное безлимитное облако за 1 минуту</p>
+                </div>
+                <button class="close-btn" id="closeWizardBtn">&times;</button>
+            </div>
+
+            <!-- Шаги навигации -->
+            <div class="wizard-stepper">
+                <div class="wizard-step-tab active" id="wizardStepHeader1" data-i18n="wizard.step1_tab">1. Язык</div>
+                <div class="wizard-step-tab" id="wizardStepHeader2" data-i18n="wizard.step2_tab">2. Telegram API</div>
+                <div class="wizard-step-tab" id="wizardStepHeader3" data-i18n="wizard.step3_tab">3. Вход в аккаунт</div>
+                <div class="wizard-step-tab" id="wizardStepHeader4" data-i18n="wizard.step4_tab">4. Создание диска</div>
+                <div class="wizard-step-tab" id="wizardStepHeader5" data-i18n="wizard.step5_tab">5. Готово</div>
+            </div>
+
+            <!-- ШАГ 1: ЯЗЫК -->
+            <div class="wizard-content" id="wizardStepBody1">
+                <h3 class="wizard-step-title" data-i18n="wizard.step1_title">Выберите язык интерфейса / Select Language</h3>
+                <p class="wizard-step-desc" data-i18n="wizard.step1_desc">Вы сможете изменить язык в любой момент в верхнем меню или в настройках.</p>
+                
+                <div class="wizard-card-grid">
+                    <div class="wizard-lang-card active" id="wizardLangRu">
+                        <span class="wizard-lang-flag">🇷🇺</span>
+                        <div class="wizard-lang-name" data-i18n="wizard.step1_ru_title">Русский</div>
+                        <div class="wizard-lang-sub" data-i18n="wizard.step1_ru_desc">Русский язык интерфейса со всеми подсказками</div>
+                    </div>
+                    <div class="wizard-lang-card" id="wizardLangEn">
+                        <span class="wizard-lang-flag">🇬🇧</span>
+                        <div class="wizard-lang-name" data-i18n="wizard.step1_en_title">English</div>
+                        <div class="wizard-lang-sub" data-i18n="wizard.step1_en_desc">English interface language with full guidance</div>
+                    </div>
+                </div>
+
+                <div class="wizard-footer-nav" style="margin-top: 24px; padding: 0; background: none; border: none;">
+                    <div></div>
+                    <button type="button" class="hud-btn primary" data-wizard-next data-i18n="common.next">Далее ➔</button>
+                </div>
+            </div>
+
+            <!-- ШАГ 2: TELEGRAM API -->
+            <div class="wizard-content" id="wizardStepBody2" style="display: none;">
+                <h3 class="wizard-step-title" data-i18n="wizard.step2_title">Параметры Telegram API</h3>
+                <p class="wizard-step-desc" data-i18n="wizard.step2_desc">
+                    Для прямого подключения к облаку Telegram требуются ключи API ID и API Hash. Получить их бесплатно можно на сайте my.telegram.org (раздел «API development tools»).
+                </p>
+                <div style="margin-bottom: 14px;">
+                    <a href="https://my.telegram.org" target="_blank" style="color: #38bdf8; font-size: 12px; text-decoration: underline;" data-i18n="wizard.step2_link">Открыть my.telegram.org ↗</a>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="settings.apiIdLabel">API ID:</label>
+                    <input type="text" id="wizardApiId" class="hud-input" placeholder="12345678">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="settings.apiHashLabel">API HASH:</label>
+                    <input type="password" id="wizardApiHash" class="hud-input" placeholder="abcdef123456...">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="settings.chunkSizeLabel">РАЗМЕР ЧАНКА НАРЕЗКИ:</label>
+                    <select id="wizardChunkSize" class="hud-select">
+                        <option value="20971520">20 MB</option>
+                        <option value="52428800" selected>50 MB</option>
+                        <option value="104857600">100 MB</option>
+                    </select>
+                </div>
+                <div id="wizardStep2Msg" class="wizard-msg"></div>
+
+                <div class="wizard-footer-nav" style="margin-top: 18px; padding: 0; background: none; border: none;">
+                    <button type="button" class="hud-btn" data-wizard-prev data-i18n="common.back">⬅ Назад</button>
+                    <button type="button" class="hud-btn primary" id="wizardSaveApiBtn" data-i18n="common.next">Сохранить и далее ➔</button>
+                </div>
+            </div>
+
+            <!-- ШАГ 3: АВТОРИЗАЦИЯ -->
+            <div class="wizard-content" id="wizardStepBody3" style="display: none;">
+                <h3 class="wizard-step-title" data-i18n="wizard.step3_title">Авторизация в Telegram</h3>
+                <p class="wizard-step-desc" data-i18n="wizard.step3_desc">Введите номер телефона вашего аккаунта Telegram. Код подтверждения придёт в официальное приложение Telegram.</p>
+                
+                <div id="wizardAuthPhoneBox">
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="wizardPhoneInput" placeholder="+79801234567" class="hud-input" style="flex: 1;">
+                        <button type="button" class="hud-btn primary" id="wizardSendCodeBtn" data-i18n="settings.getCodeBtn">ПОЛУЧИТЬ КОД</button>
+                    </div>
+                </div>
+
+                <div id="wizardAuthCodeBox" style="display: none; margin-top: 12px;">
+                    <p style="font-size: 11px; color: #38bdf8; margin-bottom: 6px;" data-i18n="settings.codePrompt">📩 Код отправлен в Telegram. Введите его:</p>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="wizardCodeInput" placeholder="12345" class="hud-input" style="flex: 1;">
+                        <button type="button" class="hud-btn primary" id="wizardSignInBtn" data-i18n="settings.signInBtn">ВОЙТИ</button>
+                    </div>
+                </div>
+
+                <div id="wizardAuth2faBox" style="display: none; margin-top: 12px;">
+                    <p style="font-size: 11px; color: #f59e0b; margin-bottom: 6px;" data-i18n="settings.passPrompt">🔐 Требуется двухфакторный пароль (2FA):</p>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="password" id="wizard2faInput" placeholder="Облачный пароль" class="hud-input" style="flex: 1;">
+                        <button type="button" class="hud-btn primary" id="wizardSubmit2faBtn" data-i18n="settings.submit2faBtn">ПОДТВЕРДИТЬ</button>
+                    </div>
+                </div>
+
+                <div id="wizardAuthSuccessBox" style="display: none; margin-top: 14px; background: rgba(46, 196, 182, 0.15); border: 1px solid #2ec4b6; padding: 12px; border-radius: 8px;">
+                    <p style="font-size: 13px; color: #5eead4; font-weight: 600;">
+                        ✓ Вы успешно авторизованы как: <span id="wizardAuthUserName"></span>
+                    </p>
+                </div>
+
+                <div id="wizardStep3Msg" class="wizard-msg"></div>
+
+                <div class="wizard-footer-nav" style="margin-top: 18px; padding: 0; background: none; border: none;">
+                    <button type="button" class="hud-btn" data-wizard-prev data-i18n="common.back">⬅ Назад</button>
+                    <button type="button" class="hud-btn primary" data-wizard-next data-i18n="common.next">Далее ➔</button>
+                </div>
+            </div>
+
+            <!-- ШАГ 4: СОЗДАНИЕ ДИСКА -->
+            <div class="wizard-content" id="wizardStepBody4" style="display: none;">
+                <h3 class="wizard-step-title" data-i18n="wizard.step4_title">Создание первого облачного диска</h3>
+                <p class="wizard-step-desc" data-i18n="wizard.step4_desc">Файлы будут автоматически шифроваться, нарезаться на чанки и безопасно сохраняться в Telegram.</p>
+                
+                <div class="form-group">
+                    <label data-i18n="driveModal.driveLetterLabel">БУКВА ДИСКА:</label>
+                    <input type="text" id="wizardDriveLetter" class="hud-input" value="C" maxlength="2" style="max-width: 80px; text-transform: uppercase;">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="driveModal.driveLabelLabel">МЕТКА (НАЗВАНИЕ):</label>
+                    <input type="text" id="wizardDriveLabel" class="hud-input" value="Основной диск" data-i18n-placeholder="driveModal.driveLabelPlaceholder">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="driveModal.actionLabel">ЦЕЛЕВОЙ КАНАЛ В TELEGRAM:</label>
+                    <select id="wizardDriveTarget" class="hud-select">
+                        <option value="me" data-i18n="driveModal.savedMessagesOption" selected>💬 Избранное (Saved Messages)</option>
+                    </select>
+                </div>
+
+                <div id="wizardStep4Msg" class="wizard-msg"></div>
+
+                <div class="wizard-footer-nav" style="margin-top: 18px; padding: 0; background: none; border: none;">
+                    <button type="button" class="hud-btn" data-wizard-prev data-i18n="common.back">⬅ Назад</button>
+                    <button type="button" class="hud-btn primary" id="wizardCreateDriveBtn" data-i18n="driveModal.saveBtn">СОЗДАТЬ ДИСК ➔</button>
+                </div>
+            </div>
+
+            <!-- ШАГ 5: ГОТОВО -->
+            <div class="wizard-content" id="wizardStepBody5" style="display: none; text-align: center; padding: 30px 24px;">
+                <span style="font-size: 54px; display: block; margin-bottom: 12px;">🎉</span>
+                <h3 class="wizard-step-title" style="font-size: 20px;" data-i18n="wizard.step5_title">Настройка успешно завершена!</h3>
+                <p class="wizard-step-desc" style="max-width: 480px; margin: 0 auto 24px auto;" data-i18n="wizard.step5_desc">
+                    CrowGram полностью готов к работе. Загружайте файлы любого размера, стримьте видео, слушайте аудио и управляйте архивами!
+                </p>
+                <button type="button" class="hud-btn primary" id="wizardFinishBtn" style="padding: 12px 28px; font-size: 14px; font-weight: bold; background: #2ec4b6;" data-i18n="wizard.openStorageBtn">
+                    🚀 ОТКРЫТЬ ХРАНИЛИЩЕ
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛКА ДОБАВЛЕНИЯ ДИСКА -->
+    <div class="modal-overlay" id="driveModal" style="display: none; z-index: 2200;">
+        <div class="modal-panel" style="max-width: 480px; width: 95vw;">
             <div class="modal-header">
-                <h2 class="panel-title">🧙 МАСТЕР УСТАНОВКИ CROWGRAM</h2>
+                <h2 class="panel-title" data-i18n="driveModal.title">ДОБАВЛЕНИЕ ДИСКА</h2>
+                <button class="close-btn" id="closeDriveBtn">&times;</button>
             </div>
-            
-            <div id="wizardErrorBox" style="display:none; padding:10px; border-radius:6px; background:rgba(239,68,68,0.15); border:1px solid #ef4444; color:#f87171; font-size:12px; margin-bottom:12px;"></div>
-
-            <!-- ШАГ 1: КЛЮЧИ API -->
-            <div id="wizardStep1" class="wizard-step">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 12px;">Шаг 1/4: Введите ключи API с my.telegram.org:</p>
-                <div class="hud-form">
-                    <div class="form-group">
-                        <label>API ID:</label>
-                        <input type="text" id="wizardApiId" placeholder="12345678">
-                    </div>
-                    <div class="form-group">
-                        <label>API HASH:</label>
-                        <input type="password" id="wizardApiHash" placeholder="a1b2c3d4e5f6...">
-                    </div>
-                    <button type="button" class="hud-btn primary" id="wizardSaveApiBtn" style="width: 100%; margin-top: 10px;">СОХРАНИТЬ И ДАЛЕЕ ➔</button>
+            <form id="driveForm" class="hud-form" style="margin-top: 14px;">
+                <div class="form-group">
+                    <label data-i18n="driveModal.driveLetterLabel">БУКВА ДИСКА:</label>
+                    <input type="text" id="driveLetterInput" class="hud-input" value="D" maxlength="2" required style="max-width: 80px; text-transform: uppercase;">
                 </div>
-            </div>
-
-            <!-- ШАГ 2: ВХОД TELEGRAM -->
-            <div id="wizardStep2" class="wizard-step" style="display: none;">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Шаг 2/4: Авторизация Telegram:</p>
-                <div class="hud-form">
-                    <div class="form-group">
-                        <label>НОМЕР ТЕЛЕФОНА:</label>
-                        <input type="text" id="wizardPhone" placeholder="+79991112233">
-                    </div>
-                    <button type="button" class="hud-btn primary" id="wizardSendCodeBtn" style="width: 100%;">ОТПРАВИТЬ КОД</button>
-
-                    <div class="form-group" id="wizardCodeGroup" style="display:none; margin-top: 15px;">
-                        <label>КОД ПОДТВЕРЖДЕНИЯ:</label>
-                        <input type="text" id="wizardCode" placeholder="12345">
-                        <button type="button" class="hud-btn primary" id="wizardSignInBtn" style="width: 100%; margin-top: 8px;">ПОДТВЕРДИТЬ</button>
-                    </div>
-                    <div class="form-group" id="wizardPasswordGroup" style="display:none; margin-top: 15px;">
-                        <label>ОБЛАЧНЫЙ ПАРОЛЬ (2FA):</label>
-                        <input type="password" id="wizardPassword">
-                        <button type="button" class="hud-btn primary" id="wizardSubmitPasswordBtn" style="width: 100%; margin-top: 8px;">ВОЙТИ</button>
+                <div class="form-group">
+                    <label data-i18n="driveModal.driveLabelLabel">МЕТКА (НАЗВАНИЕ):</label>
+                    <input type="text" id="driveLabelInput" class="hud-input" required data-i18n-placeholder="driveModal.driveLabelPlaceholder" placeholder="Например: Фильмы, Документы, Общий">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="driveModal.actionLabel">ЦЕЛЕВОЙ КАНАЛ В TELEGRAM:</label>
+                    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+                            <input type="radio" name="driveAction" value="link_existing" checked>
+                            <span data-i18n="driveModal.linkExistingRadio">Привязать к «Избранное» (Saved Messages) или каналу</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+                            <input type="radio" name="driveAction" value="create_new">
+                            <span data-i18n="driveModal.createNewRadio">Создать новый приватный канал</span>
+                        </label>
                     </div>
                 </div>
-                <button type="button" id="wizardBackToStep1Btn" class="hud-btn" style="width: 100%; margin-top: 15px; background: rgba(255,255,255,0.08);">⬅ НАЗАД К КЛЮЧАМ API</button>
-            </div>
 
-            <!-- ШАГ 3: СИНХРОНИЗАЦИЯ БАЗЫ ДАННЫХ И ДИСКА -->
-            <div id="wizardStep3" class="wizard-step" style="display: none;">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Шаг 3/4: Синхронизация и выбор диска хранилища:</p>
-                <div class="hud-form">
-                    <div class="form-group">
-                        <label>ID ЧАТА / КАНАЛА ДЛЯ ФАЙЛОВ:</label>
-                        <input type="text" id="wizardChatId" placeholder="'-100...' или 'me' для Избранного" value="me">
-                    </div>
-                    <p style="font-size: 11px; color: #8892b0; margin: 10px 0;">Есть бэкап структуры файлов (JSON)? Восстановите его:</p>
-                    <input type="file" id="wizardImportDbInput" accept=".json" style="margin-bottom: 15px; font-size: 11px;">
-                    
-                    <button type="button" class="hud-btn primary" id="wizardStep3NextBtn" style="width: 100%;">ПЕРЕЙТИ К ЗАЩИТЕ ➔</button>
+                <div id="blockLinkExisting" style="margin-top: 10px;">
+                    <label data-i18n="driveModal.existingChannelLabel" style="font-size: 11px;">ВЫБЕРИТЕ КАНАЛ ИЛИ ДИАЛОГ:</label>
+                    <select id="existingChannelSelect" class="hud-select" style="width: 100%; margin-top: 4px;">
+                        <option value="me" data-i18n="driveModal.savedMessagesOption">💬 Избранное (Saved Messages)</option>
+                    </select>
                 </div>
+
+                <div id="blockCreateNew" style="display: none; margin-top: 10px;">
+                    <label data-i18n="driveModal.newChannelTitleLabel" style="font-size: 11px;">НАЗВАНИЕ КАНАЛА В TELEGRAM:</label>
+                    <input type="text" id="newChannelTitle" class="hud-input" data-i18n-placeholder="driveModal.newChannelTitlePlaceholder" placeholder="CrowGram Storage Channel" style="margin-top: 4px;">
+                </div>
+
+                <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;">
+                    <button type="button" class="hud-btn" id="cancelDriveBtn" onclick="document.getElementById('driveModal').style.display='none'" data-i18n="common.cancel">Отмена</button>
+                    <button type="submit" class="hud-btn primary" data-i18n="driveModal.saveBtn">СОЗДАТЬ ДИСК</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ПОЛНОЕ ОКНО НАСТРОЕК -->
+    <div class="modal-overlay" id="settingsModal" style="display: none;">
+        <div class="modal-panel" style="max-width: 520px; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h2 class="panel-title" data-i18n="settings.title">НАСТРОЙКИ ПОДКЛЮЧЕНИЯ</h2>
+                <button class="close-btn" id="closeSettingsBtn">&times;</button>
+            </div>
+            <form id="settingsForm" class="hud-form">
+                <div class="form-group">
+                    <label data-i18n="settings.langSelectLabel">ЯЗЫК ИНТЕРФЕЙСА:</label>
+                    <select id="settingsLangSelect" class="hud-select crow-lang-selector" onchange="window.CrowI18n.setLanguage(this.value)">
+                        <option value="ru">🇷🇺 Русский</option>
+                        <option value="en">🇬🇧 English</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="settings.apiIdLabel">API ID:</label>
+                    <input type="text" id="apiIdInput" required placeholder="12345678">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="settings.apiHashLabel">API HASH:</label>
+                    <input type="password" id="apiHashInput" required placeholder="abcdef123456...">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="settings.chunkSizeLabel">РАЗМЕР ЧАНКА НАРЕЗКИ:</label>
+                    <select id="chunkSizeInput" class="hud-select">
+                        <option value="20971520">20 MB</option>
+                        <option value="52428800" selected>50 MB (Рекомендуется)</option>
+                        <option value="104857600">100 MB</option>
+                        <option value="524288000">500 MB</option>
+                        <option value="2000000000">1.9 GB</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="settings.maxUploadsLabel">МАКС. ОДНОВРЕМЕННЫХ ЗАГРУЗОК:</label>
+                    <select id="maxConcurrentUploadsInput" class="hud-select">
+                        <option value="1">1 файл</option>
+                        <option value="2">2 файла</option>
+                        <option value="3" selected>3 файла</option>
+                        <option value="5">5 файлов</option>
+                    </select>
+                </div>
+                <button type="submit" class="hud-btn primary" id="saveConfigBtn" data-i18n="settings.saveConfigBtn">СОХРАНИТЬ КОНФИГУРАЦИЮ</button>
+            </form>
+
+            <hr class="hud-divider">
+            <div class="auth-block" id="tgAuthBlock">
+                <h3 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span data-i18n="settings.authTitle">АВТОРИЗАЦИЯ В TELEGRAM</span>
+                    <span id="tgAuthStatusBadge" class="status-badge unauth" data-i18n="settings.statusNotAuthorized">НЕ АВТОРИЗОВАН</span>
+                </h3>
+
+                <!-- Блок авторизованного пользователя -->
+                <div id="tgAuthLoggedBlock" style="display: none; margin-top: 10px;">
+                    <p style="font-size: 12px; color: var(--accent-green); margin-bottom: 10px;">
+                        ✓ <span data-i18n="settings.authorizedAs">Вы авторизованы как:</span> <b id="tgUserName"></b> <span id="tgUserPhone" style="color: var(--text-muted);"></span>
+                    </p>
+                    <button type="button" class="hud-btn danger" id="tgLogoutBtn" style="width: 100%;" data-i18n="settings.logoutBtn">🚪 ВЫЙТИ ИЗ TELEGRAM</button>
+                </div>
+
+                <!-- Шаг 1: Номер телефона -->
+                <div id="tgAuthPhoneBlock" style="margin-top: 10px;">
+                    <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;" data-i18n="settings.phonePrompt">Введите номер телефона для получения кода входа в Telegram:</p>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="tgPhoneInput" placeholder="+79801234567" class="hud-input" style="flex: 1;">
+                        <button type="button" class="hud-btn primary" id="tgSendCodeBtn" data-i18n="settings.getCodeBtn">ПОЛУЧИТЬ КОД</button>
+                    </div>
+                </div>
+
+                <!-- Шаг 2: Код из Telegram -->
+                <div id="tgAuthCodeBlock" style="display: none; margin-top: 10px;">
+                    <p style="font-size: 11px; color: var(--accent-blue); margin-bottom: 8px;" data-i18n="settings.codePrompt">📩 Код отправлен в Telegram. Введите его:</p>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="tgCodeInput" placeholder="12345" class="hud-input" style="flex: 1;">
+                        <button type="button" class="hud-btn primary" id="tgSignInBtn" data-i18n="settings.signInBtn">ВОЙТИ</button>
+                    </div>
+                </div>
+
+                <!-- Шаг 3: 2FA Пароль -->
+                <div id="tgAuthPasswordBlock" style="display: none; margin-top: 10px;">
+                    <p style="font-size: 11px; color: var(--accent-amber); margin-bottom: 8px;" data-i18n="settings.passPrompt">🔐 Требуется двухфакторный пароль (2FA):</p>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="password" id="tg2faPasswordInput" placeholder="Облачный пароль" class="hud-input" style="flex: 1;">
+                        <button type="button" class="hud-btn primary" id="tgSubmit2faBtn" data-i18n="settings.submit2faBtn">ПОДТВЕРДИТЬ</button>
+                    </div>
+                </div>
+
+                <div id="tgAuthMsg" style="font-size: 11px; margin-top: 8px; padding: 6px 10px; border-radius: 4px; display: none;"></div>
             </div>
 
-            <!-- ШАГ 4: УСТАНОВКА ПАРОЛЯ НА ВХОД В ПРИЛОЖЕНИЕ -->
-            <div id="wizardStep4" class="wizard-step" style="display: none;">
-                <p style="font-size: 13px; color: #8892b0; margin-bottom: 15px;">Шаг 4/4: Защита приложения локальным паролем (опционально):</p>
-                <div class="hud-form">
-                    <div class="form-group">
-                        <label>ПАРОЛЬ ПРИЛОЖЕНИЯ (Оставьте пустым, если не нужен):</label>
-                        <input type="password" id="wizardAppPassword" placeholder="Придумайте пароль...">
+            <hr class="hud-divider">
+            <div class="auth-block">
+                <h3 data-i18n="settings.appPassTitle">ЗАЩИТА ПАРОЛЕМ ПРИЛОЖЕНИЯ</h3>
+                <form id="settingsAppPasswordForm" class="hud-form" style="margin-top: 10px;">
+                    <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 11px;" data-i18n="settings.enablePassLabel">Включить пароль входа:</span>
+                        <input type="checkbox" id="settingsEnablePassToggle" style="width: 16px; height: 16px;">
                     </div>
-                    <div class="form-group">
-                        <label>ПОДСКАЗКА ДЛЯ ПАРОЛЯ:</label>
-                        <input type="text" id="wizardAppPasswordHint" placeholder="Например: дата рождения">
+                    <div id="settingsPassFieldsBlock" style="display: none; gap: 8px; flex-direction: column; margin-top: 8px;">
+                        <input type="password" id="settingsAppPassword" data-i18n-placeholder="settings.newPassPlaceholder" placeholder="Новый пароль" class="hud-input">
+                        <input type="password" id="settingsAppPasswordConfirm" data-i18n-placeholder="settings.confirmPassPlaceholder" placeholder="Повторите новый пароль" class="hud-input">
+                        <input type="text" id="settingsPassHint" data-i18n-placeholder="settings.passHintPlaceholder" placeholder="Подсказка для пароля" class="hud-input">
+                        <input type="email" id="settingsPassEmail" data-i18n-placeholder="settings.passEmailPlaceholder" placeholder="Email для восстановления" class="hud-input">
                     </div>
-                    <button type="button" class="hud-btn primary" id="wizardFinishAllBtn" style="width: 100%; margin-top: 10px;">ЗАВЕРШИТЬ НАСТРОЙКУ И ЗАПУСТИТЬ 🚀</button>
+                    <button type="submit" class="hud-btn primary" style="margin-top: 8px;" data-i18n="settings.updatePassBtn">ОБНОВИТЬ ПАРОЛЬ</button>
+                </form>
+            </div>
+
+            <hr class="hud-divider">
+            <div class="auth-block">
+                <h3 data-i18n="settings.syncTitle">СИНХРОНИЗАЦИЯ (ОБЛАКО)</h3>
+                <p style="font-size: 11px; color: #8892b0; margin-bottom: 10px;" data-i18n="settings.syncDesc">Структура файлов и дисков сохраняется в вашем Избранном (Saved Messages).</p>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="hud-btn primary" id="pullSyncBtn" style="flex:1;" data-i18n="settings.pullSyncBtn">📥 Скачать из Telegram</button>
+                    <button type="button" class="hud-btn" id="pushSyncBtn" style="flex:1;" data-i18n="settings.pushSyncBtn">📤 Сохранить принудительно</button>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- МЕНЕДЖЕР ПЛАГИНОВ -->
+    <div class="modal-overlay" id="pluginsModal" style="display: none; z-index: 2400;">
+        <div class="modal-panel" style="max-width: 580px; width: 100%;">
+            <div class="modal-header">
+                <h2 class="panel-title">🧩 МЕНЕДЖЕР ПЛАГИНОВ</h2>
+                <button class="close-btn" id="closePluginsBtn">&times;</button>
+            </div>
+            <div style="background: rgba(255,255,255,0.03); border: 2px dashed var(--border-color); border-radius: 8px; padding: 15px; text-align: center; margin-bottom: 15px; cursor: pointer;" id="pluginDropZone">
+                <span style="font-size: 24px;">📦</span>
+                <p style="font-size: 12px; color: #8892b0; margin-top: 5px;">Перетащите <b>ZIP-архив</b> плагина сюда для установки</p>
+                <input type="file" id="pluginZipInput" accept=".zip" hidden>
+            </div>
+            <h3 style="font-size: 12px; color: var(--accent-blue); margin-bottom: 10px;">АКТИВНЫЕ ПЛАГИНЫ</h3>
+            <div id="pluginManagerList" style="max-height: 250px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <!-- CROWCOMMANDER -->
+    <div class="modal-overlay" id="commanderModal" style="display: none; z-index: 2000;">
+        <div class="modal-panel" style="max-width: 1280px; width: 94vw;">
+            <div class="modal-header">
+                <h2 class="panel-title">⚔️ CROWCOMMANDER</h2>
+                <button class="close-btn" id="closeCommanderBtn">&times;</button>
+            </div>
+            <div id="commanderContainerHolder"></div>
+        </div>
+    </div>
+
+    <!-- ПРЕДПРОСМОТР -->
+    <div class="modal-overlay" id="previewModal" style="display: none; z-index: 3000;">
+        <div class="preview-panel">
+            <div class="modal-header">
+                <h2 class="panel-title" id="previewTitle">Предпросмотр</h2>
+                <button class="close-btn" id="closePreviewBtn">&times;</button>
+            </div>
+            <div class="preview-content" id="previewContent"></div>
+        </div>
+    </div>
+
+    <!-- МОДУЛИ СКРИПТОВ -->
+    <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/wizard.js"></script>
+    <script src="/static/js/drives.js"></script>
     <script src="/static/js/main.js"></script>
 </body>
 </html>

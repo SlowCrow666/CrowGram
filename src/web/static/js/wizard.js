@@ -1,0 +1,334 @@
+/**
+ * CrowGram - Setup Wizard (Мастер первого запуска)
+ * Step 1: Language Selection (Выбор языка)
+ * Step 2: Telegram API Credentials (API ID & Hash)
+ * Step 3: Telegram Authorization (Вход в аккаунт)
+ * Step 4: Virtual Drive Creation (Создание диска)
+ * Step 5: Finish (Завершение)
+ */
+(function() {
+    class CrowSetupWizard {
+        constructor() {
+            this.currentStep = 1;
+            this.totalSteps = 5;
+            this.modalEl = null;
+            this.phoneCodeHash = null;
+        }
+
+        init() {
+            this.modalEl = document.getElementById('setupWizardModal');
+            if (!this.modalEl) return;
+
+            this.bindEvents();
+            
+            // Check if wizard should automatically open
+            const completed = localStorage.getItem('crowgram_wizard_completed');
+            if (!completed) {
+                setTimeout(() => {
+                    if (window.isAuthorized === false) {
+                        this.open();
+                    }
+                }, 400);
+            }
+        }
+
+        bindEvents() {
+            // Language Selection Cards
+            const cardRu = document.getElementById('wizardLangRu');
+            const cardEn = document.getElementById('wizardLangEn');
+            if (cardRu) {
+                cardRu.onclick = () => {
+                    window.CrowI18n.setLanguage('ru');
+                    this.updateLangCards('ru');
+                };
+            }
+            if (cardEn) {
+                cardEn.onclick = () => {
+                    window.CrowI18n.setLanguage('en');
+                    this.updateLangCards('en');
+                };
+            }
+
+            // Step Navigation Buttons
+            document.querySelectorAll('[data-wizard-next]').forEach(btn => {
+                btn.onclick = () => this.nextStep();
+            });
+            document.querySelectorAll('[data-wizard-prev]').forEach(btn => {
+                btn.onclick = () => this.prevStep();
+            });
+
+            // Close button
+            const closeBtn = document.getElementById('closeWizardBtn');
+            if (closeBtn) closeBtn.onclick = () => this.close();
+
+            const finishBtn = document.getElementById('wizardFinishBtn');
+            if (finishBtn) finishBtn.onclick = () => this.finish();
+
+            // Step 2: Save API Keys
+            const saveApiBtn = document.getElementById('wizardSaveApiBtn');
+            if (saveApiBtn) {
+                saveApiBtn.onclick = async () => {
+                    const apiId = document.getElementById('wizardApiId').value.trim();
+                    const apiHash = document.getElementById('wizardApiHash').value.trim();
+                    const chunkSize = document.getElementById('wizardChunkSize').value;
+
+                    if (!apiId || !apiHash) {
+                        this.showMsg('wizardStep2Msg', window.t('settings.apiIdLabel') + ' & ' + window.t('settings.apiHashLabel'), 'error');
+                        return;
+                    }
+
+                    saveApiBtn.disabled = true;
+                    try {
+                        const fd = new FormData();
+                        fd.append('api_id', apiId);
+                        fd.append('api_hash', apiHash);
+                        fd.append('chunk_size', chunkSize);
+                        fd.append('max_concurrent_uploads', 3);
+                        
+                        const res = await fetch('/api/config', { method: 'POST', body: fd });
+                        if (res.ok) {
+                            this.showMsg('wizardStep2Msg', window.t('messages.configSaved'), 'success');
+                            setTimeout(() => this.goToStep(3), 600);
+                        } else {
+                            this.showMsg('wizardStep2Msg', 'Ошибка сохранения API ключей', 'error');
+                        }
+                    } catch (e) {
+                        this.showMsg('wizardStep2Msg', e.message, 'error');
+                    } finally {
+                        saveApiBtn.disabled = false;
+                    }
+                };
+            }
+
+            // Step 3: Send Code
+            const sendCodeBtn = document.getElementById('wizardSendCodeBtn');
+            if (sendCodeBtn) {
+                sendCodeBtn.onclick = async () => {
+                    const phone = document.getElementById('wizardPhoneInput').value.trim();
+                    if (!phone) return;
+
+                    sendCodeBtn.disabled = true;
+                    sendCodeBtn.textContent = '⏳ ...';
+                    try {
+                        const fd = new FormData();
+                        fd.append('phone', phone);
+                        const res = await fetch('/api/auth/send-code', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (res.ok && data.status === 'code_sent') {
+                            document.getElementById('wizardAuthPhoneBox').style.display = 'none';
+                            document.getElementById('wizardAuthCodeBox').style.display = 'block';
+                            this.showMsg('wizardStep3Msg', window.t('settings.codePrompt'), 'info');
+                        } else {
+                            this.showMsg('wizardStep3Msg', data.detail || 'Ошибка отправки кода', 'error');
+                        }
+                    } catch (e) {
+                        this.showMsg('wizardStep3Msg', e.message, 'error');
+                    } finally {
+                        sendCodeBtn.disabled = false;
+                        sendCodeBtn.textContent = window.t('settings.getCodeBtn');
+                    }
+                };
+            }
+
+            // Step 3: Sign In
+            const signInBtn = document.getElementById('wizardSignInBtn');
+            if (signInBtn) {
+                signInBtn.onclick = async () => {
+                    const code = document.getElementById('wizardCodeInput').value.trim();
+                    if (!code) return;
+
+                    signInBtn.disabled = true;
+                    try {
+                        const fd = new FormData();
+                        fd.append('code', code);
+                        const res = await fetch('/api/auth/sign-in', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (res.ok && data.status === 'authorized') {
+                            this.onAuthSuccess(data.user);
+                        } else if (data.status === 'password_needed') {
+                            document.getElementById('wizardAuthCodeBox').style.display = 'none';
+                            document.getElementById('wizardAuth2faBox').style.display = 'block';
+                            this.showMsg('wizardStep3Msg', window.t('settings.passPrompt'), 'info');
+                        } else {
+                            this.showMsg('wizardStep3Msg', data.detail || 'Неверный код', 'error');
+                        }
+                    } catch (e) {
+                        this.showMsg('wizardStep3Msg', e.message, 'error');
+                    } finally {
+                        signInBtn.disabled = false;
+                    }
+                };
+            }
+
+            // Step 3: 2FA Password
+            const submit2faBtn = document.getElementById('wizardSubmit2faBtn');
+            if (submit2faBtn) {
+                submit2faBtn.onclick = async () => {
+                    const password = document.getElementById('wizard2faInput').value;
+                    if (!password) return;
+
+                    submit2faBtn.disabled = true;
+                    try {
+                        const fd = new FormData();
+                        fd.append('password', password);
+                        const res = await fetch('/api/auth/password', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (res.ok && data.status === 'authorized') {
+                            this.onAuthSuccess(data.user);
+                        } else {
+                            this.showMsg('wizardStep3Msg', data.detail || 'Неверный 2FA пароль', 'error');
+                        }
+                    } catch (e) {
+                        this.showMsg('wizardStep3Msg', e.message, 'error');
+                    } finally {
+                        submit2faBtn.disabled = false;
+                    }
+                };
+            }
+
+            // Step 4: Create Drive
+            const createDriveBtn = document.getElementById('wizardCreateDriveBtn');
+            if (createDriveBtn) {
+                createDriveBtn.onclick = async () => {
+                    const letter = (document.getElementById('wizardDriveLetter').value || 'C').toUpperCase();
+                    const label = document.getElementById('wizardDriveLabel').value.trim() || 'Main Drive';
+                    const target = document.getElementById('wizardDriveTarget').value;
+
+                    createDriveBtn.disabled = true;
+                    try {
+                        const fd = new FormData();
+                        fd.append('letter', letter);
+                        fd.append('label', label);
+                        fd.append('action', 'link_existing');
+                        fd.append('tg_chat_id', target);
+
+                        const res = await fetch('/api/drives', { method: 'POST', body: fd });
+                        if (res.ok) {
+                            if (window.loadDrives) window.loadDrives();
+                            this.goToStep(5);
+                        } else {
+                            this.showMsg('wizardStep4Msg', 'Ошибка создания диска', 'error');
+                        }
+                    } catch (e) {
+                        this.showMsg('wizardStep4Msg', e.message, 'error');
+                    } finally {
+                        createDriveBtn.disabled = false;
+                    }
+                };
+            }
+
+            // Sidebar trigger
+            const navWizardBtn = document.getElementById('navWizardBtn');
+            if (navWizardBtn) {
+                navWizardBtn.onclick = (e) => {
+                    e.preventDefault();
+                    this.open();
+                };
+            }
+        }
+
+        updateLangCards(lang) {
+            const cardRu = document.getElementById('wizardLangRu');
+            const cardEn = document.getElementById('wizardLangEn');
+            if (cardRu) cardRu.classList.toggle('active', lang === 'ru');
+            if (cardEn) cardEn.classList.toggle('active', lang === 'en');
+        }
+
+        onAuthSuccess(user) {
+            document.getElementById('wizardAuthCodeBox').style.display = 'none';
+            document.getElementById('wizardAuth2faBox').style.display = 'none';
+            document.getElementById('wizardAuthPhoneBox').style.display = 'none';
+            
+            const successBox = document.getElementById('wizardAuthSuccessBox');
+            if (successBox) {
+                successBox.style.display = 'block';
+                const name = user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : 'Telegram User';
+                document.getElementById('wizardAuthUserName').textContent = name;
+            }
+            this.showMsg('wizardStep3Msg', '✓ ' + window.t('settings.statusAuthorized'), 'success');
+            setTimeout(() => this.goToStep(4), 1000);
+        }
+
+        showMsg(targetId, text, type = 'info') {
+            const el = document.getElementById(targetId);
+            if (!el) return;
+            el.textContent = text;
+            el.className = `wizard-msg ${type}`;
+            el.style.display = 'block';
+        }
+
+        open() {
+            if (!this.modalEl) return;
+            this.currentStep = 1;
+            this.updateLangCards(window.CrowI18n ? window.CrowI18n.getLanguage() : 'ru');
+            this.modalEl.style.display = 'flex';
+            this.goToStep(1);
+            this.prefillConfig();
+        }
+
+        async prefillConfig() {
+            try {
+                const res = await fetch('/api/config');
+                if (res.ok) {
+                    const cfg = await res.json();
+                    if (cfg.api_id) document.getElementById('wizardApiId').value = cfg.api_id;
+                    if (cfg.api_hash) document.getElementById('wizardApiHash').value = cfg.api_hash;
+                    if (cfg.phone) document.getElementById('wizardPhoneInput').value = cfg.phone;
+                    if (cfg.is_authorized) {
+                        this.onAuthSuccess(cfg.tg_user);
+                    }
+                }
+            } catch (e) {}
+        }
+
+        close() {
+            if (this.modalEl) this.modalEl.style.display = 'none';
+        }
+
+        finish() {
+            localStorage.setItem('crowgram_wizard_completed', 'true');
+            this.close();
+            if (window.loadConfig) window.loadConfig();
+            if (window.loadDrives) window.loadDrives();
+            if (window.loadFiles) window.loadFiles();
+        }
+
+        goToStep(stepNum) {
+            if (stepNum < 1 || stepNum > this.totalSteps) return;
+            this.currentStep = stepNum;
+
+            // Update Stepper Nav
+            for (let i = 1; i <= this.totalSteps; i++) {
+                const stepHeader = document.getElementById(`wizardStepHeader${i}`);
+                const stepBody = document.getElementById(`wizardStepBody${i}`);
+                if (stepHeader) {
+                    stepHeader.classList.toggle('active', i === stepNum);
+                    stepHeader.classList.toggle('completed', i < stepNum);
+                }
+                if (stepBody) {
+                    stepBody.style.display = i === stepNum ? 'block' : 'none';
+                }
+            }
+
+            if (window.CrowI18n) {
+                window.CrowI18n.applyTranslations(this.modalEl);
+            }
+        }
+
+        nextStep() {
+            this.goToStep(this.currentStep + 1);
+        }
+
+        prevStep() {
+            this.goToStep(this.currentStep - 1);
+        }
+    }
+
+    window.CrowWizardInstance = new CrowSetupWizard();
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => window.CrowWizardInstance.init());
+    } else {
+        window.CrowWizardInstance.init();
+    }
+})();

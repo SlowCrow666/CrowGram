@@ -1,8 +1,11 @@
 import os
 import asyncio
+import sqlite3
+from pathlib import Path
 from pyrogram import Client
 from pyrogram.enums import ChatType, ChatMemberStatus
 from pyrogram.errors import SessionPasswordNeeded, FloodWait, PeerIdInvalid
+from src.config import BASE_DIR
 
 class TelegramManager:
     def __init__(self):
@@ -10,49 +13,132 @@ class TelegramManager:
         self.session_name = "crowgram_session"
         self.api_id = None
         self.api_hash = None
+        self.phone = None
+        self.sent_code_info = None
         self._chat_cache = {}
         self._upload_semaphore = asyncio.Semaphore(3)
+        self._auth_lock = asyncio.Lock()
 
-    async def init_client(self):
-        from src.core.db import get_all_config
-        cfg = get_all_config()
-        self.api_id = cfg.get("api_id")
-        self.api_hash = cfg.get("api_hash")
-        
-        if self.api_id and self.api_hash:
+    async def init_client(self, force: bool = False):
+        async with self._auth_lock:
+            from src.core.db import get_all_config
+            cfg = get_all_config()
+            self.api_id = cfg.get("api_id")
+            self.api_hash = cfg.get("api_hash")
+            
+            if not self.api_id or not self.api_hash:
+                return
+
             clean_id = int(str(self.api_id).strip().replace('"', '').replace("'", ""))
             clean_hash = str(self.api_hash).strip().replace('"', '').replace("'", "")
             
-            if not self.app or getattr(self, "_current_id", None) != clean_id:
-                if self.app and self.app.is_connected:
-                    try: await self.app.disconnect()
+            if not force and self.app and self.app.is_connected and getattr(self, "_current_id", None) == clean_id:
+                if not getattr(self.app, "me", None):
+                    try: self.app.me = await self.app.get_me()
                     except Exception: pass
-                self.app = Client(self.session_name, api_id=clean_id, api_hash=clean_hash)
-                self._current_id = clean_id
+                return
 
-            if not self.app.is_connected:
-                await self.app.connect()
-            try:
-                self.app.me = await self.app.get_me()
-            except Exception as e:
-                print(f"[WARN] Ошибка получения me: {e}")
-                self.app.me = None
+            if self.app:
+                try:
+                    if self.app.is_connected:
+                        await self.app.disconnect()
+                except Exception:
+                    pass
+                self.app = None
+
+            self.app = Client(self.session_name, api_id=clean_id, api_hash=clean_hash, workdir=str(BASE_DIR))
+            self._current_id = clean_id
+
+            for attempt in range(5):
+                try:
+                    if not self.app.is_connected:
+                        await self.app.connect()
+                    self.app.me = await self.app.get_me()
+                    break
+                except (sqlite3.OperationalError, Exception) as e:
+                    if "locked" in str(e).lower() and attempt < 4:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    if not getattr(self.app, "is_connected", False):
+                        print(f"[WARN] init_client error: {e}")
+                    self.app.me = None
+                    break
 
     def is_authorized(self):
-        return self.app and self.app.is_connected and getattr(self.app, "me", None) is not None
+        return bool(self.app and self.app.is_connected and getattr(self.app, "me", None) is not None)
 
     async def send_code(self, phone):
         await self.init_client()
-        self.phone = phone
-        self.sent_code_info = await self.app.send_code(phone)
+        clean_phone = phone.strip().replace(" ", "").replace("-", "")
+        self.phone = clean_phone
+        
+        async with self._auth_lock:
+            if not self.app or not self.app.is_connected:
+                await self.app.connect()
+                
+            for attempt in range(4):
+                try:
+                    self.sent_code_info = await self.app.send_code(clean_phone)
+                    break
+                except Exception as e:
+                    if "locked" in str(e).lower() and attempt < 3:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    raise e
+
+        from src.core.db import set_config
+        set_config("phone", clean_phone)
+        set_config("phone_code_hash", self.sent_code_info.phone_code_hash)
+        return {"status": "code_sent"}
 
     async def sign_in(self, phone, code):
-        await self.app.sign_in(phone, self.sent_code_info.phone_code_hash, code)
-        self.app.me = await self.app.get_me()
+        from src.core.db import get_config
+        phone_code_hash = getattr(self.sent_code_info, "phone_code_hash", None) or get_config("phone_code_hash")
+        if not phone_code_hash:
+            raise Exception("Сначала запросите код на номер телефона")
+        target_phone = (phone or self.phone or get_config("phone") or "").strip().replace(" ", "").replace("-", "")
+        
+        async with self._auth_lock:
+            for attempt in range(4):
+                try:
+                    await self.app.sign_in(target_phone, phone_code_hash, code.strip())
+                    self.app.me = await self.app.get_me()
+                    break
+                except SessionPasswordNeeded:
+                    raise
+                except Exception as e:
+                    if "locked" in str(e).lower() and attempt < 3:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    raise e
 
     async def check_password(self, password):
-        await self.app.check_password(password)
-        self.app.me = await self.app.get_me()
+        async with self._auth_lock:
+            for attempt in range(4):
+                try:
+                    await self.app.check_password(password)
+                    self.app.me = await self.app.get_me()
+                    break
+                except Exception as e:
+                    if "locked" in str(e).lower() and attempt < 3:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    raise e
+
+    async def log_out(self):
+        async with self._auth_lock:
+            if self.app:
+                try:
+                    if self.app.is_connected:
+                        await self.app.log_out()
+                except Exception:
+                    pass
+                self.app = None
+                
+            session_file = BASE_DIR / f"{self.session_name}.session"
+            if session_file.exists():
+                try: session_file.unlink()
+                except: pass
 
     async def get_admin_channels(self):
         if not self.is_authorized(): return []

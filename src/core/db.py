@@ -8,7 +8,10 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from src.config import DB_PATH
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout = 30000;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -50,6 +53,7 @@ def init_db():
                         name TEXT NOT NULL,
                         parent_id INTEGER DEFAULT 0,
                         in_trash INTEGER DEFAULT 0,
+                        is_favorite INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         drive_id INTEGER DEFAULT 1
                     )''')
@@ -76,7 +80,6 @@ def init_db():
 
         c.execute("PRAGMA table_info(files)")
         file_cols = [col['name'] for col in c.fetchall()]
-        
         if 'drive_id' not in file_cols:
             c.execute("ALTER TABLE files ADD COLUMN drive_id INTEGER DEFAULT 1")
         if 'in_trash' not in file_cols:
@@ -88,11 +91,12 @@ def init_db():
 
         c.execute("PRAGMA table_info(folders)")
         folder_cols = [col['name'] for col in c.fetchall()]
-        
         if 'drive_id' not in folder_cols:
             c.execute("ALTER TABLE folders ADD COLUMN drive_id INTEGER DEFAULT 1")
         if 'in_trash' not in folder_cols:
             c.execute("ALTER TABLE folders ADD COLUMN in_trash INTEGER DEFAULT 0")
+        if 'is_favorite' not in folder_cols:
+            c.execute("ALTER TABLE folders ADD COLUMN is_favorite INTEGER DEFAULT 0")
 
         c.execute("SELECT COUNT(*) FROM drives")
         if c.fetchone()[0] == 0:
@@ -139,7 +143,6 @@ def remove_plugin_defaults_for_plugin(plugin_name: str):
         c.execute("DELETE FROM plugin_defaults WHERE plugin_name = ?", (plugin_name,))
         conn.commit()
 
-# ХРАНЕНИЕ И ПРОВЕРКА ПАРОЛЯ ПРИЛОЖЕНИЯ
 def set_app_password(password: str, hint: str = "", email: str = "", enabled: bool = True):
     set_config("app_password_enabled", "1" if enabled and password else "0")
     if password:
@@ -222,7 +225,7 @@ def list_files_db(drive_id=1):
         c = conn.cursor()
         items = []
         
-        c.execute("SELECT id, name, parent_id, in_trash, drive_id, created_at FROM folders WHERE drive_id = ? AND in_trash = 0", (drive_id,))
+        c.execute("SELECT id, name, parent_id, in_trash, is_favorite, drive_id, created_at FROM folders WHERE drive_id = ? AND in_trash = 0", (drive_id,))
         for row in c.fetchall():
             items.append({**dict(row), "is_folder": True, "size": 0})
             
@@ -237,7 +240,7 @@ def list_trash_db():
         c = conn.cursor()
         items = []
         
-        c.execute("SELECT id, name, parent_id, in_trash, drive_id, created_at FROM folders WHERE in_trash = 1")
+        c.execute("SELECT id, name, parent_id, in_trash, is_favorite, drive_id, created_at FROM folders WHERE in_trash = 1")
         for row in c.fetchall():
             items.append({**dict(row), "is_folder": True, "size": 0})
             
@@ -346,10 +349,14 @@ def empty_trash_db():
         return tasks
 
 def toggle_favorite_db(file_id, state, is_folder=False):
-    if is_folder: return
     with get_db_connection() as conn:
         c = conn.cursor()
-        c.execute("UPDATE files SET is_favorite = ? WHERE id = ?", (state, file_id))
+        if not is_folder:
+            c.execute("SELECT id FROM folders WHERE id = ?", (file_id,))
+            if c.fetchone(): is_folder = True
+            
+        table = "folders" if is_folder else "files"
+        c.execute(f"UPDATE {table} SET is_favorite = ? WHERE id = ?", (state, file_id))
         conn.commit()
 
 def move_item_db(file_id, new_parent_id, new_drive_id=None, is_folder=False):
@@ -365,6 +372,42 @@ def move_item_db(file_id, new_parent_id, new_drive_id=None, is_folder=False):
         else:
             c.execute(f"UPDATE {table} SET parent_id = ? WHERE id = ?", (new_parent_id, file_id))
         conn.commit()
+
+def copy_item_db(file_id, new_parent_id, new_drive_id=None, is_folder=False):
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        
+        # Check files table first unless explicitly a folder
+        if not is_folder:
+            c.execute("SELECT name, size, thumbnail, drive_id FROM files WHERE id = ?", (file_id,))
+            f_row = c.fetchone()
+            if f_row:
+                target_drive = new_drive_id if new_drive_id is not None else f_row['drive_id']
+                c.execute("INSERT INTO files (name, size, parent_id, thumbnail, drive_id) VALUES (?, ?, ?, ?, ?)",
+                          (f_row['name'], f_row['size'], new_parent_id, f_row['thumbnail'], target_drive))
+                new_file_id = c.lastrowid
+                
+                c.execute("SELECT chunk_index, message_id, chunk_size, sha256 FROM chunks WHERE file_id = ? ORDER BY chunk_index", (file_id,))
+                chunks = c.fetchall()
+                for chunk in chunks:
+                    c.execute("INSERT INTO chunks (file_id, chunk_index, message_id, chunk_size, sha256) VALUES (?, ?, ?, ?, ?)",
+                              (new_file_id, chunk['chunk_index'], chunk['message_id'], chunk['chunk_size'], chunk['sha256']))
+                
+                conn.commit()
+                return new_file_id
+
+        # Check folders table
+        c.execute("SELECT name, drive_id FROM folders WHERE id = ?", (file_id,))
+        folder = c.fetchone()
+        if folder:
+            target_drive = new_drive_id if new_drive_id is not None else folder['drive_id']
+            c.execute("INSERT INTO folders (name, parent_id, drive_id) VALUES (?, ?, ?)",
+                      (folder['name'], new_parent_id, target_drive))
+            new_folder_id = c.lastrowid
+            conn.commit()
+            return new_folder_id
+
+        return None
 
 def get_storage_stats():
     with get_db_connection() as conn:

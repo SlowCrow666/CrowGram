@@ -15,7 +15,7 @@ import os
 import shutil
 import subprocess
 import string
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 from urllib.parse import quote
 from contextlib import asynccontextmanager
@@ -31,7 +31,7 @@ from src.core.db import (
     init_db, set_config, get_config, get_all_config, add_file_record, 
     add_folder_record, add_chunk_record, list_files_db, list_trash_db, get_file_chunks, get_file_info,
     move_to_trash_db, restore_from_trash_db, delete_file_permanently_db, empty_trash_db,
-    get_drives, add_drive, update_drive_db, delete_drive_db, get_drive_info, toggle_favorite_db, move_item_db, get_storage_stats,
+    get_drives, add_drive, update_drive_db, delete_drive_db, get_drive_info, toggle_favorite_db, move_item_db, copy_item_db, get_storage_stats,
     export_db_to_json, import_db_from_json, set_app_password, verify_app_password_db, get_password_recovery_info,
     get_plugin_defaults, set_plugin_default, remove_plugin_defaults_for_plugin
 )
@@ -45,7 +45,7 @@ mimetypes.add_type('audio/flac', '.flac')
 mimetypes.add_type('audio/ogg', '.ogg')
 
 BASE_DIR = Path(__file__).resolve().parent
-PLUGINS_DIR = BASE_DIR / "plugins"
+PLUGINS_DIR = BASE_DIR / "src" / "web" / "static" / "plugins"
 THEMES_DIR = BASE_DIR / "themes"
 
 PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
@@ -87,70 +87,85 @@ def parse_peer_id(chat_id: str):
         return int(f"-100{cid_str}")
     return cid_str
 
-def parse_plugin_info(plugin_path: Path):
-    rel_file = plugin_path.name
-    plugin_id = plugin_path.stem
-    manifest_file = plugin_path.parent / f"{plugin_id}.json"
+async def stream_chunk_range(msg_id: int, chat_target, chunk_global_start: int, req_start: int, req_end: int, file_id: Optional[int] = None):
+    cache_key = f"{chat_target}_{msg_id}"
     
-    info = {
-        "file": rel_file,
-        "name": plugin_id,
-        "title": plugin_id,
-        "version": "1.0.0",
-        "description": "Плагин CrowGram",
-        "category": "general",
-        "author": "Разработчик"
-    }
-    
-    if manifest_file.exists():
+    # 1. If in cache, yield requested sub-slice immediately (0 ms latency)
+    if cache_key in chunk_cache:
+        data = chunk_cache[cache_key]
+        c_len = len(data)
+        c_start = chunk_global_start
+        c_end = c_start + c_len - 1
+        
+        y_start = max(c_start, req_start)
+        y_end = min(c_end, req_end)
+        if y_start <= y_end:
+            s_start = y_start - c_start
+            s_end = y_end - c_start + 1
+            yield data[s_start:s_end]
+        return
+
+    # 2. Live streaming from Telegram MTProto packet by packet
+    async with stream_semaphore:
+        buffer = bytearray()
+        part_offset = 0
+        last_time = [time.time()]
+        last_bytes = [0]
+        
         try:
-            data = json.loads(manifest_file.read_text(encoding="utf-8"))
-            info.update({
-                "title": data.get("title", plugin_id),
-                "version": data.get("version", "1.0.0"),
-                "description": data.get("description", "Плагин CrowGram"),
-                "category": data.get("category", "general"),
-                "author": data.get("author", "Разработчик")
-            })
-        except Exception:
-            pass
-    return info
+            async for chunk_part in tg_manager.download_chunk_stream(msg_id, chat_target):
+                part_len = len(chunk_part)
+                buffer.extend(chunk_part)
+                
+                if file_id and file_id in stream_progress:
+                    info = stream_progress[file_id]
+                    info["downloaded_bytes"] += part_len
+                    now = time.time()
+                    dt = now - last_time[0]
+                    if dt >= 0.3:
+                        db = len(buffer) - last_bytes[0]
+                        if db > 0 and dt > 0:
+                            info["speed_mbps"] = round((db / (1024 * 1024)) / dt, 2)
+                        last_time[0] = now
+                        last_bytes[0] = len(buffer)
+
+                p_start = chunk_global_start + part_offset
+                p_end = p_start + part_len - 1
+                
+                y_start = max(p_start, req_start)
+                y_end = min(p_end, req_end)
+                
+                if y_start <= y_end:
+                    s_start = y_start - p_start
+                    s_end = y_end - p_start + 1
+                    yield chunk_part[s_start:s_end]
+                    
+                part_offset += part_len
+                
+        except Exception as e:
+            print(f"[WARN] stream_chunk_range error: {e}")
+            
+        data = bytes(buffer)
+        if len(data) > 0:
+            chunk_cache[cache_key] = data
+            if len(chunk_cache) > 50:
+                first_key = next(iter(chunk_cache))
+                del chunk_cache[first_key]
 
 async def get_cached_chunk_data(msg_id: int, chat_target, file_id: Optional[int] = None):
     cache_key = f"{chat_target}_{msg_id}"
     if cache_key in chunk_cache:
         data = chunk_cache[cache_key]
         if file_id and file_id in stream_progress:
-            stream_progress[file_id]["downloaded_bytes"] += len(data)
+            info = stream_progress[file_id]
+            t_b = info.get("total_bytes") or len(data)
+            info["downloaded_bytes"] = min(t_b, info["downloaded_bytes"] + len(data))
         return data
         
-    async with stream_semaphore:
-        start_t = time.time()
-        buffer = bytearray()
-        
-        try:
-            async for chunk_bytes in tg_manager.download_chunk_stream(msg_id, chat_target):
-                buffer.extend(chunk_bytes)
-                if file_id and file_id in stream_progress:
-                    elapsed = max(0.1, time.time() - start_t)
-                    stream_progress[file_id]["downloaded_bytes"] += len(chunk_bytes)
-                    stream_progress[file_id]["speed_mbps"] = round((len(chunk_bytes) / (1024 * 1024)) / elapsed, 2)
-                    start_t = time.time()
-        except Exception as e:
-            print(f"[WARN] Ошибка потока, переподключение... {e}")
-            await asyncio.sleep(1)
-            await tg_manager.init_client()
-            async for chunk_bytes in tg_manager.download_chunk_stream(msg_id, chat_target):
-                buffer.extend(chunk_bytes)
-
-        data = bytes(buffer)
-        chunk_cache[cache_key] = data
-            
-        if len(chunk_cache) > 30:
-            first_key = next(iter(chunk_cache))
-            del chunk_cache[first_key]
-            
-        return data
+    buf = bytearray()
+    async for piece in stream_chunk_range(msg_id, chat_target, 0, 0, 10**12, file_id):
+        buf.extend(piece)
+    return bytes(buf)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -162,24 +177,21 @@ async def lifespan(app: FastAPI):
     async def init_tg_background():
         try:
             await tg_manager.init_client()
-            if tg_manager.app and tg_manager.app.is_connected:
-                async for _ in tg_manager.app.get_dialogs(limit=100):
-                    pass
-        except Exception:
+        except Exception as e:
             pass
             
     asyncio.create_task(init_tg_background())
-        
     yield
     
-    if tg_manager.app and tg_manager.app.is_connected:
-        await tg_manager.app.stop()
+    if tg_manager.app and getattr(tg_manager.app, "is_connected", False):
+        try: await tg_manager.app.disconnect()
+        except Exception: pass
 
 app = FastAPI(title="CrowGram Cloud Storage", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
-app.mount("/locales", StaticFiles(directory=LOCALES_DIR), name="locales")
-app.mount("/plugins", StaticFiles(directory=PLUGINS_DIR), name="plugins")
-app.mount("/themes", StaticFiles(directory=THEMES_DIR), name="themes")
+app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
+app.mount("/locales", StaticFiles(directory=str(LOCALES_DIR)), name="locales")
+app.mount("/plugins", StaticFiles(directory=str(PLUGINS_DIR)), name="plugins")
+app.mount("/themes", StaticFiles(directory=str(THEMES_DIR)), name="themes")
 
 upload_tasks = {}
 
@@ -195,30 +207,43 @@ async def push_sync_background():
 
 @app.get("/api/stream/status/{file_id}")
 async def get_stream_status(file_id: int):
-    info = stream_progress.get(file_id, {"downloaded_bytes": 0, "total_bytes": 0, "speed_mbps": 0.0})
-    percent = 0
-    if info["total_bytes"] > 0:
-        percent = min(100, int((info["downloaded_bytes"] / info["total_bytes"]) * 100))
-    return JSONResponse(content={
-        "downloaded_mb": round(info["downloaded_bytes"] / (1024 * 1024), 1),
-        "total_mb": round(info["total_bytes"] / (1024 * 1024), 1),
-        "percent": percent,
-        "speed_mbps": info["speed_mbps"]
-    })
-
-@app.get("/api/stream/playlist/{file_id}.m3u")
-async def get_vlc_playlist(file_id: int, request: Request):
     file_info = get_file_info(file_id)
-    if not file_info: raise HTTPException(status_code=404, detail="Файл не найден")
+    total_bytes = file_info["size"] if file_info else 0
     
-    host = request.headers.get("host", f"{DEFAULT_HOST}:{DEFAULT_PORT}")
-    stream_link = f"http://{host}/api/stream/{file_id}"
+    if file_id not in stream_progress:
+        stream_progress[file_id] = {
+            "downloaded_bytes": 0,
+            "total_bytes": total_bytes,
+            "speed_mbps": 0.0
+        }
+        
+    info = stream_progress[file_id]
+    if total_bytes > 0 and info.get("total_bytes", 0) == 0:
+        info["total_bytes"] = total_bytes
+
+    if file_info:
+        chunks = get_file_chunks(file_id)
+        drive = get_drive_info(file_info["drive_id"])
+        if drive:
+            chat_target = parse_peer_id(drive["tg_chat_id"])
+            cached_bytes = 0
+            for c in chunks:
+                ck = f"{chat_target}_{c['message_id']}"
+                if ck in chunk_cache:
+                    cached_bytes += len(chunk_cache[ck])
+            if cached_bytes > info["downloaded_bytes"]:
+                info["downloaded_bytes"] = cached_bytes
+
+    t_b = info.get("total_bytes") or total_bytes
+    d_b = min(t_b, info.get("downloaded_bytes", 0)) if t_b > 0 else info.get("downloaded_bytes", 0)
+    percent = min(100, int((d_b / t_b) * 100)) if t_b > 0 else 0
     
-    content = f"#EXTM3U\n#EXTINF:-1,{file_info['name']}\n{stream_link}\n"
-    headers = {
-        "Content-Disposition": f"attachment; filename=\"stream.m3u\""
-    }
-    return Response(content=content, media_type="audio/x-mpegurl", headers=headers)
+    return JSONResponse(content={
+        "downloaded_mb": round(d_b / (1024 * 1024), 1),
+        "total_mb": round(t_b / (1024 * 1024), 1),
+        "percent": percent,
+        "speed_mbps": info.get("speed_mbps", 0.0)
+    })
 
 @app.get("/api/local/drives")
 async def get_local_drives():
@@ -350,62 +375,19 @@ async def download_cloud_file_to_local(
 
     return {"status": "success", "dest_path": str(dest_file_path)}
 
-@app.get("/api/app-auth/status")
-async def api_app_auth_status():
-    recovery_info = get_password_recovery_info()
-    return JSONResponse(content={
-        "has_password": recovery_info["enabled"],
-        "has_hint": bool(recovery_info["hint"]),
-        "has_email": bool(recovery_info["email"])
-    })
-
-@app.post("/api/app-auth/verify")
-async def api_app_auth_verify(password: str = Form(...)):
-    if verify_app_password_db(password):
+@app.post("/api/local/delete")
+async def delete_local_file_or_folder(path: str = Form(...)):
+    target_path = Path(path).resolve()
+    if not target_path.exists():
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    try:
+        if target_path.is_dir():
+            shutil.rmtree(target_path)
+        else:
+            target_path.unlink()
         return {"status": "success"}
-    raise HTTPException(status_code=401, detail="Неверный пароль")
-
-@app.post("/api/app-auth/recover")
-async def api_app_auth_recover():
-    info = get_password_recovery_info()
-    if not info["enabled"]:
-        return {"status": "error", "message": "Пароль не установлен"}
-
-    sent_tg = False
-    if tg_manager.is_authorized() and info["raw_password"]:
-        try:
-            msg_text = f"🔑 ** CrowGram Backup Password **\nВаш пароль от приложения: `{info['raw_password']}`"
-            await tg_manager.app.send_message("me", msg_text)
-            sent_tg = True
-        except Exception:
-            pass
-
-    return {"status": "success", "hint": info["hint"], "sent_telegram": sent_tg, "email": info["email"]}
-
-@app.post("/api/app-auth/setup")
-async def api_app_auth_setup(
-    enabled: bool = Form(...),
-    password: Optional[str] = Form(""),
-    password_confirm: Optional[str] = Form(""),
-    hint: Optional[str] = Form(""),
-    email: Optional[str] = Form(""),
-    send_to_tg: Optional[bool] = Form(True)
-):
-    if enabled:
-        if not password:
-            raise HTTPException(status_code=400, detail="Пароль не может быть пустым")
-        if password != password_confirm:
-            raise HTTPException(status_code=400, detail="Пароли не совпадают")
-        set_app_password(password, hint or "", email or "", enabled=True)
-        if send_to_tg and tg_manager.is_authorized():
-            try:
-                msg_text = f"🔐 ** Пароль сохранен в CrowGram **\nПароль доступа к приложению: `{password}`\nПодсказка: _{hint}_"
-                await tg_manager.app.send_message("me", msg_text)
-            except Exception:
-                pass
-    else:
-        set_app_password("", "", "", enabled=False)
-    return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/sync/push")
 async def api_sync_push():
@@ -430,85 +412,42 @@ async def root():
 @app.get("/api/plugins")
 async def get_plugins():
     if not PLUGINS_DIR.exists():
-        return JSONResponse(content={"plugins": [], "defaults": {}})
-    js_files = [f for f in PLUGINS_DIR.glob("*.js")]
-    plugins_data = [parse_plugin_info(f) for f in js_files]
-    defaults = get_plugin_defaults()
-    for category in ["video", "audio", "text"]:
-        if category not in defaults:
-            cat_plugins = [p for p in plugins_data if p["category"] == category]
-            if cat_plugins:
-                set_plugin_default(category, cat_plugins[0]["name"])
-                defaults[category] = cat_plugins[0]["name"]
-    return JSONResponse(content={"plugins": plugins_data, "defaults": defaults})
-
-@app.post("/api/plugins/upload")
-async def upload_plugin(file: UploadFile = File(...)):
-    if not file.filename.endswith(".zip"):
-        raise HTTPException(status_code=400, detail="Плагин должен быть запакован в .zip архив")
-    temp_zip = TEMP_DIR / f"plugin_{uuid.uuid4()}.zip"
-    with open(temp_zip, "wb") as f:
-        f.write(await file.read())
-    try:
-        with zipfile.ZipFile(temp_zip, "r") as zip_ref:
-            filenames = zip_ref.namelist()
-            js_files = [f for f in filenames if f.endswith(".js") and not f.startswith("__MACOSX")]
-            if not js_files:
-                raise HTTPException(status_code=400, detail="Архив не содержит .js файла плагина")
-            for member in zip_ref.infolist():
-                if member.filename.startswith("/") or ".." in member.filename:
-                    raise HTTPException(status_code=400, detail="Недопустимая структура архива (Path Traversal)")
-            for member in zip_ref.infolist():
-                if member.filename.endswith(".js") or member.filename.endswith(".json"):
-                    filename = Path(member.filename).name
-                    if filename:
-                        target_path = PLUGINS_DIR / filename
-                        with zip_ref.open(member) as source, open(target_path, "wb") as target:
-                            shutil.copyfileobj(source, target)
-    except Exception as e:
-        if temp_zip.exists(): temp_zip.unlink()
-        raise HTTPException(status_code=400, detail=f"Ошибка распаковки архива: {str(e)}")
-    finally:
-        if temp_zip.exists(): temp_zip.unlink()
-    return {"status": "success", "message": "Плагин успешно установлен"}
-
-@app.delete("/api/plugins/{plugin_name}")
-async def delete_plugin(plugin_name: str):
-    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '', plugin_name)
-    if not safe_name:
-        raise HTTPException(status_code=400, detail="Неверное имя плагина")
-    js_file = PLUGINS_DIR / f"{safe_name}.js"
-    json_file = PLUGINS_DIR / f"{safe_name}.json"
-    if js_file.exists(): js_file.unlink()
-    if json_file.exists(): json_file.unlink()
-    remove_plugin_defaults_for_plugin(safe_name)
-    return {"status": "success", "message": "Плагин удален"}
-
-@app.post("/api/plugins/default")
-async def set_default_plugin_api(category: str = Form(...), plugin_name: str = Form(...)):
-    set_plugin_default(category, plugin_name)
-    return {"status": "success"}
+        return JSONResponse(content=[])
+    plugins = [f.name for f in PLUGINS_DIR.glob("*.js")]
+    return JSONResponse(content=plugins)
 
 @app.get("/api/config")
 async def api_get_config():
     cfg = get_all_config()
-    cfg["is_authorized"] = tg_manager.is_authorized()
-    cfg["has_ffmpeg"] = check_ffmpeg_available()
-    cfg["has_app_password"] = get_password_recovery_info()["enabled"]
-    cfg["version"] = "2.0.0"
-    cfg["api_version"] = "1.0"
+    is_auth = tg_manager.is_authorized()
+    cfg["is_authorized"] = is_auth
+    if is_auth and getattr(tg_manager.app, "me", None):
+        me = tg_manager.app.me
+        cfg["tg_user"] = {
+            "id": me.id,
+            "first_name": me.first_name or "",
+            "last_name": me.last_name or "",
+            "username": me.username or "",
+            "phone": me.phone_number or ""
+        }
+    else:
+        cfg["tg_user"] = None
     return JSONResponse(content=cfg)
 
 @app.post("/api/config")
-async def api_set_config(api_id: str=Form(...), api_hash: str=Form(...), chunk_size: Optional[str]=Form(None), max_concurrent_uploads: Optional[str]=Form(None)):
-    clean_api_id = str(api_id).strip().replace('"', '').replace("'", "").replace(" ", "")
-    clean_api_hash = str(api_hash).strip().replace('"', '').replace("'", "").replace(" ", "")
-
-    set_config("api_id", clean_api_id)
-    set_config("api_hash", clean_api_hash)
+async def api_set_config(
+    api_id: str = Form(...), 
+    api_hash: str = Form(...), 
+    chunk_size: Optional[str] = Form(None),
+    max_concurrent_uploads: Optional[str] = Form(None)
+):
+    clean_id = str(api_id).strip().replace('"', '').replace("'", "")
+    clean_hash = str(api_hash).strip().replace('"', '').replace("'", "")
+    set_config("api_id", clean_id)
+    set_config("api_hash", clean_hash)
     if chunk_size: set_config("chunk_size", chunk_size.strip())
     if max_concurrent_uploads: set_config("max_concurrent_uploads", max_concurrent_uploads.strip())
-    await tg_manager.init_client()
+    await tg_manager.init_client(force=True)
     return {"status": "success"}
 
 @app.post("/api/auth/send-code")
@@ -537,47 +476,38 @@ async def api_check_password(password: str = Form(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/api/auth/logout")
+async def api_logout():
+    try:
+        await tg_manager.log_out()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.get("/api/drives")
 async def api_get_drives():
     return JSONResponse(content=get_drives())
 
 @app.post("/api/drives")
-async def api_create_drive(letter: str=Form(...), label: str=Form(...), action: str=Form(...), title: Optional[str]=Form(None), tg_chat_id: Optional[str]=Form(None), icon: Optional[str]=Form("💽")):
+async def api_create_drive(
+    letter: str = Form(...), 
+    label: str = Form(...), 
+    action: str = Form(...), 
+    title: Optional[str] = Form(None), 
+    tg_chat_id: Optional[str] = Form(None),
+    icon: Optional[str] = Form("💽")
+):
     if action == "create_new":
+        if not title: raise HTTPException(status_code=400, detail="Нужно название канала")
         new_chat_id = await tg_manager.create_new_channel(title)
+        if not new_chat_id: raise HTTPException(status_code=500, detail="Ошибка создания канала")
         add_drive(letter, label, new_chat_id, icon=icon)
     else:
+        if not tg_chat_id or not validate_chat_id(tg_chat_id): 
+            raise HTTPException(status_code=400, detail="Неверный формат ID канала или канал не выбран")
         add_drive(letter, label, tg_chat_id.strip(), icon=icon)
     asyncio.create_task(push_sync_background())
     return {"status": "success"}
-
-@app.put("/api/drives/{drive_id}")
-async def api_update_drive(drive_id: int, letter: str=Form(...), label: str=Form(...), icon: Optional[str]=Form("💽")):
-    update_drive_db(drive_id, letter, label, icon=icon)
-    asyncio.create_task(push_sync_background())
-    return {"status": "success"}
-
-@app.delete("/api/drives/{drive_id}")
-async def api_delete_drive(drive_id: int):
-    delete_drive_db(drive_id)
-    asyncio.create_task(push_sync_background())
-    return {"status": "success"}
-
-@app.get("/api/tg/channels")
-async def api_get_channels():
-    try:
-        channels = await tg_manager.get_admin_channels()
-        return JSONResponse(content=channels)
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": str(e)})
-
-@app.get("/api/stats")
-async def api_stats():
-    stats = get_storage_stats()
-    items = list_files_db(1)
-    files_cnt = sum(1 for i in items if not i.get("is_folder") and not i.get("in_trash"))
-    folders_cnt = sum(1 for i in items if i.get("is_folder") and not i.get("in_trash"))
-    return JSONResponse(content={"total_size": stats["total_size"], "files_count": files_cnt, "folders_count": folders_cnt})
 
 @app.get("/api/files")
 async def list_files(drive_id: int = Query(1)):
@@ -588,23 +518,37 @@ async def list_trash_files():
     return JSONResponse(content=list_trash_db())
 
 @app.post("/api/folders")
-async def create_folder(name: str=Form(...), parent_id: Optional[str]=Form(0), drive_id: int=Form(1)):
+async def create_folder(name: str = Form(...), parent_id: Optional[str] = Form(0), drive_id: int = Form(1)):
     p_id = int(parent_id) if parent_id and str(parent_id).isdigit() else 0
     folder_id = add_folder_record(name.strip(), p_id, drive_id)
     asyncio.create_task(push_sync_background())
     return {"status": "success", "id": folder_id}
 
-@app.get("/api/upload/status")
-async def api_upload_status():
-    return JSONResponse(content=upload_tasks)
+@app.get("/api/upload/status/{task_id}")
+async def get_upload_task_status(task_id: str):
+    if task_id not in upload_tasks:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return JSONResponse(content=upload_tasks[task_id])
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile=File(...), parent_id: Optional[str]=Form(0), drive_id: int=Form(1), thumbnail: Optional[str]=Form("")):
+async def upload_file(
+    file: UploadFile = File(...), 
+    parent_id: Optional[str] = Form(0), 
+    drive_id: int = Form(1), 
+    thumbnail: Optional[str] = Form("")
+):
+    if not tg_manager.is_authorized(): 
+        raise HTTPException(status_code=401, detail="Не авторизован в Telegram")
+        
     drive = get_drive_info(drive_id)
+    if not drive: raise HTTPException(status_code=400, detail="Диск не найден")
+    
     p_id = int(parent_id) if parent_id and str(parent_id).isdigit() else 0
     thumb = thumbnail if thumbnail and thumbnail != "null" else ""
+    
     task_id = str(uuid.uuid4())
     temp_path = TEMP_DIR / f"full_temp_{task_id}.tmp"
+    
     with open(temp_path, "wb") as f:
         while True:
             content = await file.read(1024 * 1024 * 5)
@@ -612,103 +556,190 @@ async def upload_file(file: UploadFile=File(...), parent_id: Optional[str]=Form(
             f.write(content)
             
     file_size = temp_path.stat().st_size
-    chunk_size = int(get_config("chunk_size") or CHUNK_SIZE_BYTES)
-    
-    upload_tasks[task_id] = {"status": "processing", "completed_bytes": 0, "current_chunk_bytes": 0, "total_size": file_size, "start_time": time.time(), "is_paused": False, "is_cancelled": False}
-    
-    async def background_upload():
+    chunk_size_setting = get_config("chunk_size")
+    chunk_size = int(chunk_size_setting) if chunk_size_setting else CHUNK_SIZE_BYTES
+    total_chunks = max(1, (file_size + chunk_size - 1) // chunk_size) if file_size > 0 else 1
+    chat_target = parse_peer_id(drive["tg_chat_id"])
+
+    upload_tasks[task_id] = {
+        "task_id": task_id,
+        "status": "uploading_to_tg",
+        "filename": file.filename,
+        "total_size": file_size,
+        "chunk_size": chunk_size,
+        "total_chunks": total_chunks,
+        "current_chunk": 1,
+        "completed_chunks": 0,
+        "uploaded_bytes": 0,
+        "percent": 0,
+        "speed_mbps": 0.0,
+        "speed_text": "0.0 MB/s",
+        "error": None,
+        "file_id": None
+    }
+
+    async def background_uploader():
+        task = upload_tasks[task_id]
         try:
             chunks_data_to_save = []
             completed_bytes = 0
-            chat_target = parse_peer_id(drive["tg_chat_id"])
+            
             with open(temp_path, "rb") as f:
                 chunk_index = 0
                 while True:
-                    if upload_tasks[task_id]["is_cancelled"]:
-                        upload_tasks[task_id]["status"] = "cancelled"
+                    if task.get("is_cancelled"):
+                        task["status"] = "cancelled"
                         return
+                        
                     chunk_data = f.read(chunk_size)
-                    if not chunk_data: break
+                    if not chunk_data:
+                        break
+                    
+                    chunk_len = len(chunk_data)
+                    task["current_chunk"] = chunk_index + 1
                     chunk_file_path = TEMP_DIR / f"temp_{task_id}_{chunk_index}.tmp"
                     sha256 = hashlib.sha256(chunk_data).hexdigest()
-                    with open(chunk_file_path, "wb") as cf: cf.write(chunk_data)
+                    
+                    with open(chunk_file_path, "wb") as cf:
+                        cf.write(chunk_data)
+                    
+                    last_progress_time = [time.time()]
+                    last_progress_bytes = [0]
+                    
+                    def chunk_progress(current, total, *args):
+                        task["uploaded_bytes"] = completed_bytes + current
+                        if file_size > 0:
+                            task["percent"] = min(99, int((task["uploaded_bytes"] / file_size) * 100))
+                        now = time.time()
+                        dt = now - last_progress_time[0]
+                        if dt >= 0.3:
+                            db = current - last_progress_bytes[0]
+                            if db > 0:
+                                speed = round((db / (1024 * 1024)) / dt, 2)
+                                task["speed_mbps"] = speed
+                                task["speed_text"] = f"{speed:.1f} MB/s" if speed >= 1.0 else f"{speed * 1024:.0f} KB/s"
+                            last_progress_time[0] = now
+                            last_progress_bytes[0] = current
+
+                    msg_id = await tg_manager.upload_chunk(chunk_file_path, chat_target, progress_callback=chunk_progress)
+                    chunks_data_to_save.append({
+                        "index": chunk_index,
+                        "msg_id": msg_id,
+                        "size": chunk_len,
+                        "sha256": sha256
+                    })
+                    
+                    if chunk_file_path.exists():
+                        chunk_file_path.unlink()
                         
-                    async def progress_tracker(current, total):
-                        upload_tasks[task_id]["current_chunk_bytes"] = current
-                        
-                    msg_id = await tg_manager.upload_chunk(chunk_file_path, chat_target, progress_callback=progress_tracker)
-                    chunks_data_to_save.append({"index": chunk_index, "msg_id": msg_id, "size": len(chunk_data), "sha256": sha256})
-                    if chunk_file_path.exists(): chunk_file_path.unlink()
-                    completed_bytes += len(chunk_data)
-                    upload_tasks[task_id]["completed_bytes"] = completed_bytes
-                    upload_tasks[task_id]["current_chunk_bytes"] = 0
+                    completed_bytes += chunk_len
+                    task["completed_chunks"] = chunk_index + 1
+                    task["uploaded_bytes"] = completed_bytes
+                    if file_size > 0:
+                        task["percent"] = min(99, int((completed_bytes / file_size) * 100))
                     chunk_index += 1
-            
+
             file_id = add_file_record(file.filename, file_size, p_id, thumb, drive_id)
             for c in chunks_data_to_save:
                 add_chunk_record(file_id, c["index"], c["msg_id"], c["size"], c["sha256"])
-            upload_tasks[task_id]["status"] = "done"
+                
+            task["file_id"] = file_id
+            task["status"] = "done"
+            task["percent"] = 100
+            task["uploaded_bytes"] = file_size
+            task["completed_chunks"] = total_chunks
+            task["speed_mbps"] = 0.0
+            task["speed_text"] = ""
             asyncio.create_task(push_sync_background())
-        except Exception as e: 
-            upload_tasks[task_id]["status"] = "error"
-            upload_tasks[task_id]["error"] = str(e)
+        except Exception as e:
+            task["status"] = "error"
+            task["error"] = str(e)
+            print(f"[ERROR upload task {task_id}]: {traceback.format_exc()}")
         finally:
-            if temp_path.exists(): temp_path.unlink()
-    asyncio.create_task(background_upload())
-    return {"status": "success", "task_id": task_id}
+            if temp_path.exists():
+                try: temp_path.unlink()
+                except: pass
 
-@app.post("/api/upload/cancel/{task_id}")
-async def cancel_upload(task_id: str):
-    if task_id in upload_tasks:
-        upload_tasks[task_id]["is_cancelled"] = True
-        upload_tasks[task_id]["status"] = "cancelled"
-    return {"status": "success"}
+    asyncio.create_task(background_uploader())
+    return {
+        "status": "processing",
+        "task_id": task_id,
+        "total_chunks": total_chunks,
+        "total_size": file_size,
+        "chunk_size": chunk_size
+    }
 
 @app.get("/api/download/{file_id}")
 async def download_file(file_id: int):
     file_info = get_file_info(file_id)
-    if not file_info or file_info["is_folder"]: raise HTTPException(status_code=404, detail="Файл не найден")
+    if not file_info:
+        raise HTTPException(status_code=404, detail="Файл не найден")
+        
+    if file_info.get("is_folder"):
+        raise HTTPException(status_code=400, detail="Для скачивания папки используйте ZIP")
+
     drive = get_drive_info(file_info["drive_id"])
+    if not drive: raise HTTPException(status_code=400, detail="Диск не найден")
+        
     file_size = file_info["size"]
-    if file_size == 0: return Response(content=b"", media_type="application/octet-stream")
+    mime_type, _ = mimetypes.guess_type(file_info["name"])
+    media_type = mime_type or "application/octet-stream"
+
+    if file_size == 0: return Response(content=b"", media_type=media_type)
 
     chunks = get_file_chunks(file_id)
     chat_target = parse_peer_id(drive["tg_chat_id"])
     
     async def full_streamer():
+        current_pos = 0
         for chunk_info in chunks:
-            chunk_data = await get_cached_chunk_data(chunk_info["message_id"], chat_target, file_id)
-            yield chunk_data
+            chunk_size = chunk_info.get("size") or chunk_info.get("chunk_size") or CHUNK_SIZE_BYTES
+            async for piece in stream_chunk_range(
+                chunk_info["message_id"],
+                chat_target,
+                chunk_global_start=current_pos,
+                req_start=0,
+                req_end=file_size - 1,
+                file_id=file_id
+            ):
+                yield piece
+            current_pos += chunk_size
                 
-    raw_name = re.sub(r'[\\/*?:"<>|]', '_', file_info["name"])
-    ascii_fallback = raw_name.encode('ascii', 'ignore').decode('ascii').strip() or "file"
-    encoded_utf8_name = quote(raw_name)
-    headers = {"Content-Length": str(file_size), "Content-Disposition": f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded_utf8_name}"}
-    return StreamingResponse(full_streamer(), status_code=200, headers=headers, media_type="application/octet-stream")
+    encoded_name = quote(file_info["name"])
+    headers = {
+        "Content-Length": str(file_size),
+        "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}"
+    }
+    return StreamingResponse(full_streamer(), status_code=200, headers=headers, media_type=media_type)
 
 @app.get("/api/stream/{file_id}")
 async def stream_file(file_id: int, request: Request):
     file_info = get_file_info(file_id)
-    if not file_info or file_info["is_folder"]: raise HTTPException(status_code=404, detail="Файл не найден")
+    if not file_info or file_info["is_folder"]:
+        raise HTTPException(status_code=404, detail="Файл не найден")
+        
     drive = get_drive_info(file_info["drive_id"])
+    if not drive: raise HTTPException(status_code=400, detail="Диск не найден")
+        
     file_size = file_info["size"]
     mime_type, _ = mimetypes.guess_type(file_info["name"])
     media_type = mime_type or "video/mp4"
 
     if file_size == 0: return Response(content=b"", media_type=media_type)
+
     chunks = get_file_chunks(file_id)
     chat_target = parse_peer_id(drive["tg_chat_id"])
     
-    stream_progress[file_id] = {"downloaded_bytes": 0, "total_bytes": file_size, "speed_mbps": 0.0}
-
     range_header = request.headers.get("Range")
     start = 0
     end = file_size - 1
+    
     if range_header:
         match = re.match(r"bytes=(\d+)-(\d*)", range_header)
         if match:
             start = int(match.group(1))
-            if match.group(2): end = int(match.group(2))
+            if match.group(2):
+                end = int(match.group(2))
 
     headers = {
         "Content-Range": f"bytes {start}-{end}/{file_size}",
@@ -722,48 +753,51 @@ async def stream_file(file_id: int, request: Request):
         current_pos = 0
         for chunk_info in chunks:
             chunk_size = chunk_info.get("size") or chunk_info.get("chunk_size") or CHUNK_SIZE_BYTES
-            if current_pos + chunk_size <= start:
+            chunk_start = current_pos
+            chunk_end = current_pos + chunk_size - 1
+            
+            if chunk_end < start:
                 current_pos += chunk_size
                 continue
-            if current_pos > end: break
-            data = await get_cached_chunk_data(chunk_info["message_id"], chat_target, file_id)
-            data_len = len(data)
-            yield_start = max(current_pos, start)
-            yield_end = min(current_pos + data_len - 1, end)
-            if yield_start <= yield_end:
-                slice_start = yield_start - current_pos
-                slice_end = yield_end - current_pos + 1
-                yield data[slice_start:slice_end]
-            current_pos += data_len
-            if current_pos > end: break
+            if chunk_start > end:
+                break
+                
+            async for piece in stream_chunk_range(
+                chunk_info["message_id"],
+                chat_target,
+                chunk_global_start=chunk_start,
+                req_start=start,
+                req_end=end,
+                file_id=file_id
+            ):
+                yield piece
+                
+            current_pos += chunk_size
 
     return StreamingResponse(range_streamer(), status_code=status_code, headers=headers, media_type=media_type)
 
-@app.get("/api/transcode/{file_id}")
-async def transcode_file(file_id: int, request: Request):
-    return await stream_file(file_id, request)
-
 @app.get("/api/download-zip")
-async def download_zip(ids: str = Query(...), name: Optional[str] = Query("archive")):
+async def download_zip(ids: str = Query(...)):
     file_ids = [int(i) for i in ids.split(",") if i.isdigit()]
     zip_buffer = io.BytesIO()
+    
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for fid in file_ids:
             file_info = get_file_info(fid)
             if not file_info or file_info["is_folder"]: continue
             drive = get_drive_info(file_info["drive_id"])
-            chat_target = parse_peer_id(drive["tg_chat_id"])
+            if not drive: continue
+            
             chunks = get_file_chunks(fid)
+            chat_target = parse_peer_id(drive["tg_chat_id"])
             file_data = bytearray()
             for chunk_info in chunks:
                 chunk_bytes = await get_cached_chunk_data(chunk_info["message_id"], chat_target, fid)
                 file_data.extend(chunk_bytes)
             zip_file.writestr(file_info["name"], bytes(file_data))
+            
     zip_buffer.seek(0)
-    raw_name = re.sub(r'[\\/*?:"<>|]', '_', name.strip()) or "archive"
-    ascii_fallback = raw_name.encode('ascii', 'ignore').decode('ascii').strip() or "archive"
-    encoded_utf8_name = quote(f"{raw_name}.zip")
-    headers = {"Content-Disposition": f"attachment; filename=\"{ascii_fallback}.zip\"; filename*=UTF-8''{encoded_utf8_name}"}
+    headers = {"Content-Disposition": "attachment; filename=archive.zip"}
     return StreamingResponse(zip_buffer, media_type="application/zip", headers=headers)
 
 @app.post("/api/files/{file_id}/trash")
@@ -772,9 +806,11 @@ async def move_to_trash(file_id: int):
     asyncio.create_task(push_sync_background())
     return {"status": "success"}
 
-@app.post("/api/files/{file_id}/restore")
-async def restore_from_trash(file_id: int):
-    restore_from_trash_db(file_id)
+# ВОССТАНОВЛЕННЫЙ ЭНДПОИНТ МАССОВОГО УДАЛЕНИЯ В КОРЗИНУ
+@app.post("/api/files/batch-trash")
+async def batch_trash(ids: List[int] = Form(...)):
+    for fid in ids:
+        move_to_trash_db(fid)
     asyncio.create_task(push_sync_background())
     return {"status": "success"}
 
@@ -785,35 +821,27 @@ async def toggle_favorite(file_id: int, state: int = Form(...)):
     return {"status": "success"}
 
 @app.post("/api/files/{file_id}/move")
-async def move_item(file_id: int, new_parent_id: int = Form(...), new_drive_id: Optional[int] = Form(None)):
+async def move_item(
+    file_id: int, 
+    new_parent_id: int = Form(...), 
+    new_drive_id: Optional[int] = Form(None)
+):
     move_item_db(file_id, new_parent_id, new_drive_id)
     asyncio.create_task(push_sync_background())
     return {"status": "success"}
 
-@app.post("/api/files/batch-trash")
-async def batch_trash(ids: list[int] = Form(...)):
-    for fid in ids: move_to_trash_db(fid)
+@app.post("/api/files/{file_id}/copy")
+async def copy_item(
+    file_id: int, 
+    new_parent_id: int = Form(0), 
+    new_drive_id: Optional[int] = Form(None),
+    is_folder: bool = Form(False)
+):
+    new_id = copy_item_db(file_id, new_parent_id, new_drive_id, is_folder=is_folder)
+    if new_id is None:
+        raise HTTPException(status_code=404, detail="Файл не найден")
     asyncio.create_task(push_sync_background())
-    return {"status": "success"}
-
-@app.delete("/api/files/{file_id}/permanent")
-async def delete_permanently(file_id: int):
-    result = delete_file_permanently_db(file_id)
-    if result and result["msg_ids"] and result["chat_id"]: 
-        chat_target = parse_peer_id(result["chat_id"])
-        await tg_manager.delete_messages(result["msg_ids"], chat_target)
-    asyncio.create_task(push_sync_background())
-    return {"status": "success"}
-
-@app.delete("/api/trash/empty")
-async def empty_trash():
-    tasks = empty_trash_db()
-    for chat_id, msg_ids in tasks.items():
-        if msg_ids: 
-            chat_target = parse_peer_id(chat_id)
-            await tg_manager.delete_messages(msg_ids, chat_target)
-    asyncio.create_task(push_sync_background())
-    return {"status": "success"}
+    return {"status": "success", "new_file_id": new_id}
 
 if __name__ == "__main__":
     port = find_free_port(DEFAULT_PORT)

@@ -1,49 +1,158 @@
 let currentLang = 'ru';
 let isAuthorized = false;
+let selectedFileIds = new Set();
+let allItems = [];
 let currentFolderId = 0;
 let currentDriveId = 1;
 let isTrashView = false;
-let allItems = [];
-let selectedFileIds = new Set();
+let currentViewMode = 'table';
+let uploadQueue = [];
+let maxConcurrentUploads = 3;
+let activeUploads = 0;
 
 window.CrowAPI = {
     plugins: {},
-    hooks: { onFileClick: [], onAppReady: [], renderContextMenu: [] },
+    hooks: { onFileClick: [], onAppReady: [] },
+    
     registerPlugin: function(name, plugin) {
         this.plugins[name] = plugin;
         try { if (plugin.init) plugin.init(this); } catch (e) {}
+    },
+    
+    addHook: function(hookName, callback) {
+        if (this.hooks[hookName]) this.hooks[hookName].push(callback);
+    },
+    
+    emit: function(hookName, ...args) {
+        if (this.hooks[hookName]) {
+            let handled = false;
+            for (let cb of this.hooks[hookName]) {
+                try { if (cb(...args) === true) handled = true; } catch (e) {}
+            }
+            return handled;
+        }
+        return false;
+    },
+
+    readFile: async function(fileId) {
+        const res = await fetch('/api/download/' + fileId);
+        if (!res.ok) throw new Error('Ошибка чтения файла');
+        return await res.text();
+    },
+
+    saveFile: async function(fileId, fileName, textContent) {
+        const fd = new FormData();
+        const blob = new Blob([textContent], { type: 'text/plain' });
+        fd.append('file', blob, fileName);
+        fd.append('drive_id', currentDriveId);
+        fd.append('parent_id', currentFolderId);
+        const res = await fetch('/api/upload', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error('Ошибка сохранения');
+        await loadFiles();
+        return fileId;
+    },
+
+    ui: {
+        addBottomBar: function(id, html) {
+            let mounts = document.getElementById('plugin-mounts') || document.body;
+            let bar = document.createElement('div');
+            bar.id = id;
+            bar.className = 'plugin-bottom-bar';
+            bar.innerHTML = html;
+            mounts.appendChild(bar);
+            return bar;
+        }
     }
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    bindWizardEvents();
     bindGlobalEvents();
-    checkAppAuthStatus();
+    bindBatchEvents();
+    bindModalEvents();
+    initUploadQueueEvents();
+    initAppCore();
 });
 
-function showWizardError(msg) {
-    const box = document.getElementById('wizardErrorBox');
-    if (box) {
-        box.style.display = 'block';
-        box.innerHTML = '⚠️ ' + msg;
-    }
-}
-
-function clearWizardError() {
-    const box = document.getElementById('wizardErrorBox');
-    if (box) box.style.display = 'none';
-}
-
-function finishAuthAndOpenApp() {
-    const modal = document.getElementById('wizardModal');
-    if (modal) modal.style.display = 'none';
-    initAppCore();
-}
-
-async function initAppCore() {
-    await loadDrives();
-    await loadFiles();
+function initAppCore() {
+    loadConfigSettings();
+    loadDrives();
+    loadFiles();
+    loadPlugins();
     setupDragAndDrop();
+}
+
+async function loadConfigSettings() {
+    try {
+        const res = await fetch('/api/config');
+        if (res.ok) {
+            const cfg = await res.json();
+            if (cfg.max_concurrent_uploads) {
+                maxConcurrentUploads = parseInt(cfg.max_concurrent_uploads) || 3;
+            }
+
+            const apiIdInput = document.getElementById('apiIdInput');
+            const apiHashInput = document.getElementById('apiHashInput');
+            const chunkSizeInput = document.getElementById('chunkSizeInput');
+            const maxUploadsInput = document.getElementById('maxConcurrentUploadsInput');
+            const tgPhoneInput = document.getElementById('tgPhoneInput');
+
+            if (apiIdInput && cfg.api_id) apiIdInput.value = cfg.api_id;
+            if (apiHashInput && cfg.api_hash) apiHashInput.value = cfg.api_hash;
+            if (chunkSizeInput && cfg.chunk_size) chunkSizeInput.value = cfg.chunk_size;
+            if (maxUploadsInput && cfg.max_concurrent_uploads) maxUploadsInput.value = cfg.max_concurrent_uploads;
+            if (tgPhoneInput && cfg.phone) tgPhoneInput.value = cfg.phone;
+
+            const isAuth = Boolean(cfg.is_authorized);
+            window.isAuthorized = isAuth;
+            isAuthorized = isAuth;
+
+            const statusBadge = document.getElementById('tgAuthStatusBadge');
+            const systemStatus = document.getElementById('systemStatus');
+            const loggedBlock = document.getElementById('tgAuthLoggedBlock');
+            const phoneBlock = document.getElementById('tgAuthPhoneBlock');
+            const codeBlock = document.getElementById('tgAuthCodeBlock');
+            const passBlock = document.getElementById('tgAuthPasswordBlock');
+            const userNameEl = document.getElementById('tgUserName');
+            const userPhoneEl = document.getElementById('tgUserPhone');
+
+            if (isAuth) {
+                if (statusBadge) {
+                    statusBadge.textContent = window.t('settings.statusAuthorized') || 'АВТОРИЗОВАН 🟢';
+                    statusBadge.className = 'status-badge';
+                }
+                if (systemStatus) {
+                    const uName = cfg.tg_user ? (cfg.tg_user.first_name || 'TELEGRAM') : 'TELEGRAM';
+                    systemStatus.textContent = window.t('header.statusReady', { user: uName }) || `🟢 СИСТЕМА ГОТОВА (${uName})`;
+                    systemStatus.className = 'status-badge';
+                    systemStatus.style.cursor = 'default';
+                }
+                if (loggedBlock) loggedBlock.style.display = 'block';
+                if (phoneBlock) phoneBlock.style.display = 'none';
+                if (codeBlock) codeBlock.style.display = 'none';
+                if (passBlock) passBlock.style.display = 'none';
+                if (userNameEl && cfg.tg_user) {
+                    userNameEl.textContent = `${cfg.tg_user.first_name} ${cfg.tg_user.last_name || ''}`.trim();
+                }
+                if (userPhoneEl && cfg.tg_user) {
+                    userPhoneEl.textContent = cfg.tg_user.phone ? `(${cfg.tg_user.phone})` : '';
+                }
+            } else {
+                if (statusBadge) {
+                    statusBadge.textContent = window.t('settings.statusNotAuthorized') || 'НЕ АВТОРИЗОВАН 🔴';
+                    statusBadge.className = 'status-badge unauth';
+                }
+                if (systemStatus) {
+                    systemStatus.textContent = window.t('header.statusUnauth') || '🔴 ТРЕБУЕТСЯ АВТОРИЗАЦИЯ';
+                    systemStatus.className = 'status-badge unauth';
+                    systemStatus.style.cursor = 'pointer';
+                }
+                if (loggedBlock) loggedBlock.style.display = 'none';
+                if (phoneBlock) phoneBlock.style.display = 'block';
+            }
+        }
+    } catch (e) {
+        console.warn("Config load error", e);
+    }
 }
 
 async function loadDrives() {
@@ -67,46 +176,615 @@ async function loadDrives() {
 async function loadFiles() {
     try {
         const endpoint = isTrashView 
-            ? '/api/files/trash' 
-            : `/api/files?drive_id=${currentDriveId}&parent_id=${currentFolderId}`;
+            ? '/api/trash/files' 
+            : `/api/files?drive_id=${currentDriveId}`;
         
         const res = await fetch(endpoint);
         if (res.ok) {
             const files = await res.json();
             allItems = files;
-            renderFileList(files);
+            window.allItems = files;
+            selectedFileIds.clear();
+            updateBatchPanel();
+            
+            const filtered = isTrashView 
+                ? files 
+                : files.filter(item => Number(item.parent_id || 0) === Number(currentFolderId));
+            
+            window.currentFolderFiles = filtered;
+            renderView(filtered);
         }
     } catch (e) {}
 }
 
-function renderFileList(items) {
+function renderView(items) {
+    renderBreadcrumbs();
+    const tableContainer = document.getElementById('tableViewContainer');
+    const gridContainer = document.getElementById('gridViewContainer');
+
+    if (currentViewMode === 'table') {
+        if (tableContainer) tableContainer.style.display = 'block';
+        if (gridContainer) gridContainer.style.display = 'none';
+        renderTableList(items);
+    } else {
+        if (tableContainer) tableContainer.style.display = 'none';
+        if (gridContainer) {
+            gridContainer.style.display = 'grid';
+            gridContainer.className = `file-grid ${currentViewMode === 'grid_large' ? 'large' : 'small'}`;
+            renderGridList(items);
+        }
+    }
+}
+
+function checkIsFavorite(val) {
+    return val === 1 || val === "1" || val === true || val === "true";
+}
+
+function renderTableList(items) {
     const tbody = document.getElementById('fileList');
     if (!tbody) return;
 
     if (!items || items.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #8892b0; padding: 30px;">Папка пуста. Перетащите сюда файлы для загрузки.</td></tr>`;
+        const emptyMsg = window.t('table.emptyFolder') || 'Папка пуста.';
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #8892b0; padding: 30px;">${emptyMsg}</td></tr>`;
         return;
     }
 
-    tbody.innerHTML = items.map(item => `
+    tbody.innerHTML = items.map(item => {
+        const ext = item.name.split('.').pop().toLowerCase();
+        const isChecked = selectedFileIds.has(item.id) ? 'checked' : '';
+        const isFav = checkIsFavorite(item.is_favorite);
+
+        return `
         <tr data-id="${item.id}">
-            <td><input type="checkbox" value="${item.id}"></td>
-            <td style="cursor: pointer;" onclick="handleItemClick(${item.id}, ${item.is_folder})">
+            <td><input type="checkbox" value="${item.id}" ${isChecked} onchange="toggleSelectFile(${item.id})"></td>
+            <td>
+                <button class="fav-btn ${isFav ? 'active' : ''}" onclick="toggleFav(${item.id}, ${isFav ? 0 : 1})">
+                    ${isFav ? '⭐' : '☆'}
+                </button>
+            </td>
+            <td style="cursor: pointer;" onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', ${item.is_folder})">
                 ${item.is_folder ? '📁' : '📄'} <strong>${item.name}</strong>
             </td>
             <td>${item.is_folder ? '--' : formatBytes(item.size)}</td>
             <td>${item.created_at || '--'}</td>
+            <td class="action-cell" style="text-align: right;">
+                ${!item.is_folder ? `<button onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', false)" class="hud-btn" title="Открыть">👁</button>` : ''}
+                ${!item.is_folder ? `<a href="/api/download/${item.id}" target="_blank" class="hud-btn primary" title="Скачать">💾</a>` : ''}
+                <button onclick="deleteItem(${item.id}, ${item.is_folder})" class="hud-btn danger" title="В корзину">🗑</button>
+            </td>
         </tr>
-    `).join('');
+        `;
+    }).join('');
 }
 
-function handleItemClick(id, isFolder) {
+function renderGridList(items) {
+    const grid = document.getElementById('gridViewContainer');
+    if (!grid) return;
+
+    if (!items || items.length === 0) {
+        const emptyMsg = window.t('table.emptyFolder') || 'Папка пуста';
+        grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #8892b0; padding: 30px;">${emptyMsg}</div>`;
+        return;
+    }
+
+    grid.innerHTML = items.map(item => {
+        const ext = item.name.split('.').pop().toLowerCase();
+        const isChecked = selectedFileIds.has(item.id) ? 'checked' : '';
+        const isFav = checkIsFavorite(item.is_favorite);
+
+        return `
+        <div class="grid-item" onclick="handleItemClick(${item.id}, '${item.name.replace(/'/g, "\\'")}', '${ext}', ${item.is_folder})">
+            <input type="checkbox" class="grid-checkbox" value="${item.id}" ${isChecked} onclick="event.stopPropagation(); toggleSelectFile(${item.id})">
+            <button class="fav-btn ${isFav ? 'active' : ''} grid-fav-btn" onclick="toggleFav(${item.id}, ${isFav ? 0 : 1})">${isFav ? '⭐' : '☆'}</button>
+            <div class="grid-icon">${item.is_folder ? '📁' : '📄'}</div>
+            <div class="grid-name">${item.name}</div>
+        </div>
+        `;
+    }).join('');
+}
+
+function handleItemClick(id, name, ext, isFolder) {
     if (isFolder) {
         currentFolderId = id;
         loadFiles();
-    } else {
-        window.open('/api/download/' + id, '_blank');
+        return;
     }
+
+    const intercepted = window.CrowAPI.emit('onFileClick', id, name, ext);
+    if (!intercepted) {
+        previewFile(id, name, ext);
+    }
+}
+window.handleItemClick = handleItemClick;
+window.handleFileClick = function(id, name, ext) {
+    handleItemClick(id, name, ext, false);
+};
+
+async function loadPlugins() {
+    try {
+        const res = await fetch('/api/plugins');
+        if (res.ok) {
+            const plugins = await res.json();
+            const list = document.getElementById('pluginManagerList');
+            if (list) list.innerHTML = '';
+
+            for (let p of plugins) {
+                const scriptName = p.file || p;
+                const script = document.createElement('script');
+                script.src = '/static/plugins/' + scriptName;
+                document.head.appendChild(script);
+
+                if (list) {
+                    list.innerHTML += `<div style="padding: 8px; background: rgba(255,255,255,0.03); border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                        <span>🧩 ${scriptName}</span>
+                        <button class="hud-btn danger" style="padding:2px 6px; font-size:10px;" onclick="deletePluginFile('${scriptName}')">🗑 Удалить</button>
+                    </div>`;
+                }
+            }
+        }
+    } catch (e) {}
+}
+
+async function deletePluginFile(pluginName) {
+    if (!confirm(`Удалить плагин ${pluginName}?`)) return;
+    await fetch(`/api/plugins/${pluginName}`, { method: 'DELETE' });
+    loadPlugins();
+}
+
+function setupDragAndDrop() {
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+
+    if (!dropZone) return;
+
+    dropZone.addEventListener('click', () => fileInput?.click());
+    dropZone.addEventListener('dragover', (e) => { 
+        e.preventDefault(); 
+        dropZone.classList.add('dragover'); 
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+            uploadFiles(e.dataTransfer.files);
+        }
+    });
+
+    fileInput?.addEventListener('change', () => {
+        if (fileInput.files && fileInput.files.length) {
+            uploadFiles(fileInput.files);
+            fileInput.value = '';
+        }
+    });
+}
+
+function initUploadQueueEvents() {
+    const queueToggleBtn = document.getElementById('queueToggleBtn');
+    const queueClearBtn = document.getElementById('queueClearBtn');
+    const queueBody = document.getElementById('queueBody');
+
+    if (queueToggleBtn && queueBody) {
+        queueToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isCollapsed = queueBody.classList.toggle('collapsed');
+            queueToggleBtn.textContent = isCollapsed ? '+' : '−';
+            queueToggleBtn.title = isCollapsed ? 'Развернуть' : 'Свернуть';
+        });
+    }
+
+    if (queueClearBtn) {
+        queueClearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            clearCompletedUploads();
+        });
+    }
+}
+
+function clearCompletedUploads() {
+    const toRemove = uploadQueue.filter(t => t.status === 'done' || t.status === 'error' || t.status === 'cancelled');
+    toRemove.forEach(task => {
+        if (task.pollTimer) {
+            clearInterval(task.pollTimer);
+            task.pollTimer = null;
+        }
+        const el = document.getElementById('task_' + task.id);
+        if (el) el.remove();
+    });
+    uploadQueue = uploadQueue.filter(t => t.status !== 'done' && t.status !== 'error' && t.status !== 'cancelled');
+    updateQueueHeader();
+
+    if (uploadQueue.length === 0) {
+        const widget = document.getElementById('queueWidget');
+        if (widget) widget.style.display = 'none';
+    }
+}
+
+function updateQueueHeader() {
+    const total = uploadQueue.length;
+    const done = uploadQueue.filter(t => t.status === 'done').length;
+    const counter = document.getElementById('queueProgressCount');
+    if (counter) {
+        counter.textContent = `${done}/${total}`;
+    }
+}
+
+function enqueueUploadTask(file) {
+    const taskId = 'up_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    const task = {
+        id: taskId,
+        file: file,
+        name: file.name,
+        size: file.size,
+        parentId: currentFolderId,
+        driveId: currentDriveId,
+        status: 'queued', // 'queued' | 'buffering' | 'uploading_to_tg' | 'done' | 'error'
+        progress: 0,
+        loaded: 0,
+        total: file.size,
+        totalChunks: 1,
+        currentChunk: 1,
+        completedChunks: 0,
+        uploadedBytes: 0,
+        speedText: '',
+        serverTaskId: null,
+        pollTimer: null,
+        startTime: null,
+        error: null,
+        xhr: null
+    };
+
+    uploadQueue.push(task);
+
+    const widget = document.getElementById('queueWidget');
+    const queueBody = document.getElementById('queueBody');
+    const queueToggleBtn = document.getElementById('queueToggleBtn');
+
+    if (widget) {
+        widget.style.display = 'block';
+    }
+    if (queueBody && queueBody.classList.contains('collapsed')) {
+        queueBody.classList.remove('collapsed');
+        if (queueToggleBtn) queueToggleBtn.textContent = '−';
+    }
+
+    renderQueueItem(task);
+    updateQueueHeader();
+    processUploadQueue();
+}
+
+function formatProgressInfo(task) {
+    let statusText = 'В очереди';
+    let statusClass = 'queued';
+    let metaLeft = `${formatBytes(task.uploadedBytes || task.loaded || 0)} / ${formatBytes(task.size)}`;
+    let metaRight = 'В очереди';
+    let percent = task.progress || 0;
+
+    if (task.status === 'buffering') {
+        statusText = `Буферизация (${percent}%)`;
+        statusClass = 'uploading';
+        metaLeft = `${formatBytes(task.loaded || 0)} / ${formatBytes(task.size)}`;
+        metaRight = task.speedText ? `⚡ ${task.speedText} • Приём на сервер` : 'Передача на сервер...';
+    } else if (task.status === 'uploading_to_tg' || task.status === 'processing') {
+        const cChunk = task.currentChunk || 1;
+        const tChunks = task.totalChunks || 1;
+        statusText = `Чанк ${cChunk}/${tChunks} (${percent}%)`;
+        statusClass = 'uploading';
+        metaLeft = `Чанк ${cChunk} из ${tChunks} • ${formatBytes(task.uploadedBytes || 0)} / ${formatBytes(task.size)}`;
+        metaRight = `⚡ ${task.speedText || 'Загрузка...'} • В Telegram`;
+    } else if (task.status === 'done') {
+        const tChunks = task.totalChunks || 1;
+        statusText = 'Готово ✓';
+        statusClass = 'done';
+        percent = 100;
+        metaLeft = `Все ${tChunks} чанка(ов) • ${formatBytes(task.size)}`;
+        metaRight = '✓ Загружено в Telegram';
+    } else if (task.status === 'error') {
+        statusText = 'Ошибка ✖';
+        statusClass = 'error';
+        percent = 100;
+        metaLeft = `${formatBytes(task.size)}`;
+        metaRight = `✖ ${task.error || 'Ошибка загрузки'}`;
+    }
+
+    return { statusText, statusClass, metaLeft, metaRight, percent };
+}
+
+function renderQueueItem(task) {
+    const queueBody = document.getElementById('queueBody');
+    if (!queueBody) return;
+
+    let itemEl = document.getElementById('task_' + task.id);
+    if (!itemEl) {
+        itemEl = document.createElement('div');
+        itemEl.id = 'task_' + task.id;
+        itemEl.className = 'queue-item';
+        queueBody.appendChild(itemEl);
+    }
+
+    const { statusText, statusClass, metaLeft, metaRight, percent } = formatProgressInfo(task);
+
+    itemEl.innerHTML = `
+        <div class="queue-item-header">
+            <span class="queue-item-name" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</span>
+            <span class="queue-item-status ${statusClass}">${statusText}</span>
+        </div>
+        <div class="queue-item-meta">
+            <span class="meta-left">${metaLeft}</span>
+            <span class="meta-right">${metaRight}</span>
+        </div>
+        <div class="progress-bar-bg">
+            <div class="progress-bar-fill ${statusClass === 'done' ? 'done' : (statusClass === 'error' ? 'error' : '')}" style="width: ${percent}%;"></div>
+        </div>
+    `;
+
+    queueBody.scrollTop = queueBody.scrollHeight;
+}
+
+function updateQueueItemDOM(task) {
+    const itemEl = document.getElementById('task_' + task.id);
+    if (!itemEl) {
+        renderQueueItem(task);
+        return;
+    }
+
+    const { statusText, statusClass, metaLeft, metaRight, percent } = formatProgressInfo(task);
+
+    const statusBadge = itemEl.querySelector('.queue-item-status');
+    if (statusBadge) {
+        statusBadge.className = `queue-item-status ${statusClass}`;
+        statusBadge.textContent = statusText;
+    }
+
+    const leftSpan = itemEl.querySelector('.meta-left');
+    if (leftSpan) leftSpan.textContent = metaLeft;
+
+    const rightSpan = itemEl.querySelector('.meta-right');
+    if (rightSpan) rightSpan.textContent = metaRight;
+
+    const fillBar = itemEl.querySelector('.progress-bar-fill');
+    if (fillBar) {
+        fillBar.style.width = `${percent}%`;
+        fillBar.className = `progress-bar-fill ${statusClass === 'done' ? 'done' : (statusClass === 'error' ? 'error' : '')}`;
+    }
+}
+
+function processUploadQueue() {
+    const running = uploadQueue.filter(t => t.status === 'buffering' || t.status === 'uploading_to_tg' || t.status === 'processing').length;
+    if (running >= maxConcurrentUploads) return;
+
+    const availableSlots = maxConcurrentUploads - running;
+    const queuedTasks = uploadQueue.filter(t => t.status === 'queued').slice(0, availableSlots);
+
+    queuedTasks.forEach(task => {
+        startUploadTask(task);
+    });
+}
+
+function startUploadTask(task) {
+    task.status = 'buffering';
+    task.startTime = Date.now();
+    task.lastTime = Date.now();
+    task.lastLoaded = 0;
+    updateQueueItemDOM(task);
+    updateQueueHeader();
+
+    const xhr = new XMLHttpRequest();
+    task.xhr = xhr;
+
+    const fd = new FormData();
+    fd.append('file', task.file);
+    fd.append('drive_id', task.driveId);
+    fd.append('parent_id', task.parentId);
+
+    xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && task.status === 'buffering') {
+            const percent = Math.min(99, Math.round((e.loaded / e.total) * 100));
+            task.progress = percent;
+            task.loaded = e.loaded;
+            task.total = e.total;
+
+            const now = Date.now();
+            const elapsed = (now - (task.startTime || now)) / 1000;
+            if (elapsed > 0.3) {
+                const speedBytes = e.loaded / elapsed;
+                task.speedText = formatBytes(speedBytes) + '/s';
+            }
+
+            updateQueueItemDOM(task);
+        }
+    };
+
+    xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+                const res = JSON.parse(xhr.responseText);
+                if (res.task_id) {
+                    task.serverTaskId = res.task_id;
+                    task.totalChunks = res.total_chunks || 1;
+                    task.currentChunk = 1;
+                    task.completedChunks = 0;
+                    task.status = 'uploading_to_tg';
+                    task.progress = 0;
+                    task.speedText = '';
+                    updateQueueItemDOM(task);
+
+                    // Start live polling of Telegram chunk uploads
+                    task.pollTimer = setInterval(async () => {
+                        try {
+                            const pollRes = await fetch(`/api/upload/status/${task.serverTaskId}`);
+                            if (!pollRes.ok) return;
+                            const data = await pollRes.json();
+
+                            task.totalChunks = data.total_chunks || task.totalChunks || 1;
+                            task.currentChunk = data.current_chunk || 1;
+                            task.completedChunks = data.completed_chunks || 0;
+                            task.uploadedBytes = data.uploaded_bytes || 0;
+                            task.progress = data.percent || 0;
+                            task.speedText = data.speed_text || (data.speed_mbps ? `${data.speed_mbps} MB/s` : '');
+
+                            if (data.status === 'done') {
+                                if (task.pollTimer) {
+                                    clearInterval(task.pollTimer);
+                                    task.pollTimer = null;
+                                }
+                                task.status = 'done';
+                                task.progress = 100;
+                                task.uploadedBytes = task.size;
+                                updateQueueItemDOM(task);
+                                updateQueueHeader();
+                                processUploadQueue();
+                                loadFiles();
+                            } else if (data.status === 'error' || data.status === 'cancelled') {
+                                if (task.pollTimer) {
+                                    clearInterval(task.pollTimer);
+                                    task.pollTimer = null;
+                                }
+                                task.status = 'error';
+                                task.error = data.error || 'Ошибка загрузки в Telegram';
+                                updateQueueItemDOM(task);
+                                updateQueueHeader();
+                                processUploadQueue();
+                            } else {
+                                task.status = 'uploading_to_tg';
+                                updateQueueItemDOM(task);
+                            }
+                        } catch (pollErr) {
+                            console.warn("Upload poll error:", pollErr);
+                        }
+                    }, 350);
+
+                    return;
+                }
+            } catch (e) {
+                console.warn("Parse response error", e);
+            }
+
+            task.status = 'done';
+            task.progress = 100;
+            task.loaded = task.total;
+            task.speedText = '';
+            updateQueueItemDOM(task);
+            updateQueueHeader();
+            processUploadQueue();
+            loadFiles();
+        } else {
+            task.status = 'error';
+            try {
+                const errRes = JSON.parse(xhr.responseText);
+                task.error = errRes.detail || 'Ошибка сервера';
+            } catch (e) {
+                task.error = `Ошибка (${xhr.status})`;
+            }
+            updateQueueItemDOM(task);
+            updateQueueHeader();
+            processUploadQueue();
+        }
+    };
+
+    xhr.onerror = () => {
+        task.status = 'error';
+        task.error = 'Ошибка сети';
+        updateQueueItemDOM(task);
+        updateQueueHeader();
+        processUploadQueue();
+    };
+
+    xhr.open('POST', '/api/upload');
+    xhr.send(fd);
+}
+
+function uploadFiles(files) {
+    if (!files || !files.length) return;
+    for (let i = 0; i < files.length; i++) {
+        enqueueUploadTask(files[i]);
+    }
+}
+
+function toggleSelectFile(id) {
+    if (selectedFileIds.has(id)) selectedFileIds.delete(id);
+    else selectedFileIds.add(id);
+    updateBatchPanel();
+}
+
+function updateBatchPanel() {
+    const container = document.getElementById('batchPanelContainer');
+    const countLabel = document.getElementById('batchCount');
+    if (!container) return;
+
+    if (selectedFileIds.size > 0) {
+        container.style.display = 'block';
+        if (countLabel) {
+            const count = selectedFileIds.size;
+            countLabel.textContent = window.t('batch.selected', { count }) || `Выбрано: ${count}`;
+        }
+    } else {
+        container.style.display = 'none';
+    }
+}
+
+function bindBatchEvents() {
+    document.getElementById('selectAllCheckbox')?.addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        selectedFileIds.clear();
+        if (checked) {
+            allItems.forEach(item => selectedFileIds.add(item.id));
+        }
+        renderView(allItems);
+        updateBatchPanel();
+    });
+
+    document.getElementById('downloadFilesBtn')?.addEventListener('click', () => {
+        selectedFileIds.forEach(id => {
+            const f = allItems.find(i => i.id === id);
+            if (f && !f.is_folder) {
+                window.open('/api/download/' + id, '_blank');
+            }
+        });
+    });
+
+    document.getElementById('downloadZipBtn')?.addEventListener('click', () => {
+        const ids = Array.from(selectedFileIds).join(',');
+        window.open(`/api/download-zip?ids=${ids}`, '_blank');
+    });
+
+    document.getElementById('deleteBatchBtn')?.addEventListener('click', async () => {
+        const fd = new FormData();
+        selectedFileIds.forEach(id => fd.append('ids', id));
+        await fetch('/api/files/batch-trash', { method: 'POST', body: fd });
+        loadFiles();
+    });
+}
+
+function renderBreadcrumbs() {
+    const bcContainer = document.getElementById('breadcrumbs');
+    if (!bcContainer) return;
+
+    if (isTrashView) {
+        const trashLabel = window.t('sidebar.trash') || 'Корзина';
+        bcContainer.innerHTML = `<span class="crumb crumb-active">🗑 ${trashLabel}</span>`;
+        return;
+    }
+
+    let path = []; let curr = currentFolderId;
+    while (curr !== 0) {
+        const folder = allItems.find(i => i.id === curr);
+        if (folder) { path.unshift(folder); curr = folder.parent_id; } else break;
+    }
+
+    const rootLabel = window.t('table.rootBreadcrumb') || 'Корень';
+    let html = `<span class="crumb" onclick="navigateTo(0)">🏠 ${rootLabel}</span>`;
+    path.forEach(f => {
+        html += `<span class="crumb-separator">/</span>`;
+        html += `<span class="crumb ${f.id === currentFolderId ? 'crumb-active' : ''}" onclick="navigateTo(${f.id})">${f.name}</span>`;
+    });
+    bcContainer.innerHTML = html;
+}
+
+function navigateTo(folderId) {
+    currentFolderId = folderId;
+    loadFiles();
 }
 
 function selectDrive(driveId) {
@@ -125,303 +803,303 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-function setupDragAndDrop() {
-    const dropZone = document.getElementById('dropZone');
-    const fileInput = document.getElementById('fileInput');
-
-    if (!dropZone) return;
-
-    dropZone.addEventListener('click', () => fileInput?.click());
-    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
-    });
-
-    fileInput?.addEventListener('change', () => {
-        if (fileInput.files.length) uploadFiles(fileInput.files);
-    });
-}
-
-async function uploadFiles(files) {
-    for (let file of files) {
-        const fd = new FormData();
-        fd.append('file', file);
-        fd.append('drive_id', currentDriveId);
-        fd.append('parent_id', currentFolderId);
-
-        try {
-            document.getElementById('systemStatus').textContent = 'ЗАГРУЗКА: ' + file.name;
-            await fetch('/api/files/upload', { method: 'POST', body: fd });
-        } catch (e) {}
-    }
-    document.getElementById('systemStatus').textContent = 'СИСТЕМА ГОТОВА';
+async function toggleFav(id, state) {
+    const fd = new FormData();
+    fd.append('state', state);
+    await fetch(`/api/files/${id}/favorite`, { method: 'POST', body: fd });
     loadFiles();
 }
 
-function bindGlobalEvents() {
-    document.getElementById('navDriveBtn')?.addEventListener('click', (e) => {
+async function deleteItem(id, isFolder = false) {
+    await fetch(`/api/files/${id}/trash?is_folder=${isFolder}`, { method: 'POST' });
+    loadFiles();
+}
+
+function previewFile(id, name, ext) {
+    const modal = document.getElementById('previewModal');
+    const content = document.getElementById('previewContent');
+    const title = document.getElementById('previewTitle');
+
+    if (!modal || !content) return;
+
+    if (title) title.textContent = name;
+    content.innerHTML = '<div style="color:var(--text-muted); font-size:13px; font-family:monospace; padding:30px;">⏳ Загрузка файла...</div>';
+    modal.style.display = 'flex';
+
+    const lowerExt = (ext || '').toLowerCase();
+    const videoExts = ['mp4', 'webm', 'mkv', 'mov', 'avi', 'wmv', 'flv', 'm4v', 'ts'];
+    const audioExts = ['mp3', 'flac', 'ogg', 'wav', 'm4a', 'aac', 'wma', 'opus'];
+    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+
+    if (videoExts.includes(lowerExt)) {
+        content.innerHTML = `<video src="/api/stream/${id}" controls autoplay style="max-width:100%; max-height:70vh; border-radius:6px; outline:none; background:#000;"></video>`;
+    } else if (audioExts.includes(lowerExt)) {
+        content.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; gap:16px; padding:30px; width:100%;">
+                <span style="font-size:48px;">🎵</span>
+                <b style="font-size:14px; color:var(--text-primary);">${escapeHtml(name)}</b>
+                <audio src="/api/stream/${id}" controls autoplay style="width:100%; max-width:500px;"></audio>
+            </div>
+        `;
+    } else if (imageExts.includes(lowerExt)) {
+        content.innerHTML = `<img src="/api/download/${id}" alt="${escapeHtml(name)}" style="max-width:100%; max-height:70vh; object-fit:contain; border-radius:6px;">`;
+    } else {
+        fetch('/api/download/' + id)
+            .then(r => {
+                if (!r.ok) throw new Error('Ошибка загрузки содержимого (' + r.status + ')');
+                return r.text();
+            })
+            .then(txt => {
+                content.innerHTML = `<pre style="padding:16px; background:rgba(0,0,0,0.5); border-radius:6px; max-height:60vh; overflow:auto; width:100%; box-sizing:border-box; color:#fff; font-family:monospace; font-size:12px; white-space:pre-wrap; text-align:left;">${escapeHtml(txt)}</pre>`;
+            })
+            .catch(err => {
+                content.innerHTML = `<div style="color:var(--accent-red); padding:20px; font-family:monospace;">${escapeHtml(err.message)}</div>`;
+            });
+    }
+}
+
+function escapeHtml(str) {
+    return String(str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function safeToggleModal(modalId, displayStyle) {
+    const modal = document.getElementById(modalId);
+    if (modal) modal.style.display = displayStyle;
+}
+
+function showTgAuthMsg(text, type = 'info') {
+    const msgEl = document.getElementById('tgAuthMsg');
+    if (!msgEl) return;
+    msgEl.style.display = 'block';
+    msgEl.textContent = text;
+    if (type === 'error') {
+        msgEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        msgEl.style.color = 'var(--accent-red)';
+        msgEl.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+    } else if (type === 'success') {
+        msgEl.style.background = 'rgba(16, 185, 129, 0.15)';
+        msgEl.style.color = 'var(--accent-green)';
+        msgEl.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+    } else {
+        msgEl.style.background = 'rgba(59, 130, 246, 0.15)';
+        msgEl.style.color = 'var(--accent-blue)';
+        msgEl.style.border = '1px solid rgba(59, 130, 246, 0.3)';
+    }
+}
+
+function bindModalEvents() {
+    document.getElementById('navSettingsBtn')?.addEventListener('click', (e) => {
+        e.preventDefault(); 
+        loadConfigSettings();
+        safeToggleModal('settingsModal', 'flex');
+    });
+    document.getElementById('closeSettingsBtn')?.addEventListener('click', () => {
+        safeToggleModal('settingsModal', 'none');
+    });
+
+    document.getElementById('systemStatus')?.addEventListener('click', () => {
+        if (!window.isAuthorized) {
+            loadConfigSettings();
+            safeToggleModal('settingsModal', 'flex');
+        }
+    });
+
+    document.getElementById('navPluginsBtn')?.addEventListener('click', (e) => {
+        e.preventDefault(); safeToggleModal('pluginsModal', 'flex');
+    });
+    document.getElementById('closePluginsBtn')?.addEventListener('click', () => {
+        safeToggleModal('pluginsModal', 'none');
+    });
+
+    document.getElementById('closePreviewBtn')?.addEventListener('click', () => {
+        safeToggleModal('previewModal', 'none');
+        const content = document.getElementById('previewContent');
+        if (content) content.innerHTML = '';
+    });
+
+    document.getElementById('viewSwitcher')?.addEventListener('change', (e) => {
+        currentViewMode = e.target.value; renderView(allItems);
+    });
+
+    // Обработчик сохранения настроек (API ID / Hash)
+    document.getElementById('settingsForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        isTrashView = false;
-        currentFolderId = 0;
-        loadFiles();
+        const apiId = document.getElementById('apiIdInput').value.trim();
+        const apiHash = document.getElementById('apiHashInput').value.trim();
+        const chunkSize = document.getElementById('chunkSizeInput').value;
+        const maxUploads = document.getElementById('maxConcurrentUploadsInput').value;
+
+        const fd = new FormData();
+        fd.append('api_id', apiId);
+        fd.append('api_hash', apiHash);
+        fd.append('chunk_size', chunkSize);
+        fd.append('max_concurrent_uploads', maxUploads);
+
+        showTgAuthMsg('Сохранение конфигурации...', 'info');
+        try {
+            const res = await fetch('/api/config', { method: 'POST', body: fd });
+            if (res.ok) {
+                showTgAuthMsg('Конфигурация успешно сохранена!', 'success');
+                await loadConfigSettings();
+            } else {
+                showTgAuthMsg('Ошибка сохранения конфигурации', 'error');
+            }
+        } catch (err) {
+            showTgAuthMsg('Ошибка сети: ' + err.message, 'error');
+        }
+    });
+
+    // Запрос кода в Telegram
+    document.getElementById('tgSendCodeBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('tgSendCodeBtn');
+        const phone = document.getElementById('tgPhoneInput').value.trim();
+        if (!phone) {
+            showTgAuthMsg('Введите номер телефона (например +79801234567)', 'error');
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.textContent = 'ОТПРАВКА...'; }
+        showTgAuthMsg('Отправка запроса на получение кода...', 'info');
+        const fd = new FormData();
+        fd.append('phone', phone);
+        try {
+            const res = await fetch('/api/auth/send-code', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (res.ok && data.status === 'code_sent') {
+                showTgAuthMsg('✓ Код успешно отправлен в Telegram!', 'success');
+                const codeBlock = document.getElementById('tgAuthCodeBlock');
+                if (codeBlock) codeBlock.style.display = 'block';
+                const codeInput = document.getElementById('tgCodeInput');
+                if (codeInput) codeInput.focus();
+            } else {
+                showTgAuthMsg('Ошибка: ' + (data.detail || 'Не удалось отправить код'), 'error');
+            }
+        } catch (err) {
+            showTgAuthMsg('Ошибка соединения: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'ПОЛУЧИТЬ КОД'; }
+        }
+    });
+
+    // Ввод кода подтверждения
+    document.getElementById('tgSignInBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('tgSignInBtn');
+        const code = document.getElementById('tgCodeInput').value.trim();
+        if (!code) {
+            showTgAuthMsg('Введите код из Telegram', 'error');
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.textContent = 'ВХОД...'; }
+        showTgAuthMsg('Проверка кода...', 'info');
+        const fd = new FormData();
+        fd.append('code', code);
+        try {
+            const res = await fetch('/api/auth/sign-in', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (res.ok) {
+                if (data.status === 'password_required') {
+                    showTgAuthMsg('🔐 Требуется облачный пароль 2FA', 'info');
+                    const passBlock = document.getElementById('tgAuthPasswordBlock');
+                    if (passBlock) passBlock.style.display = 'block';
+                    const passInput = document.getElementById('tg2faPasswordInput');
+                    if (passInput) passInput.focus();
+                } else {
+                    showTgAuthMsg('✓ Авторизация успешно выполнена!', 'success');
+                    await loadConfigSettings();
+                    await loadFiles();
+                }
+            } else {
+                showTgAuthMsg('Ошибка: ' + (data.detail || 'Неверный код'), 'error');
+            }
+        } catch (err) {
+            showTgAuthMsg('Ошибка: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'ВОЙТИ'; }
+        }
+    });
+
+    // Ввод 2FA пароля
+    document.getElementById('tgSubmit2faBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('tgSubmit2faBtn');
+        const password = document.getElementById('tg2faPasswordInput').value;
+        if (!password) {
+            showTgAuthMsg('Введите 2FA пароль', 'error');
+            return;
+        }
+        if (btn) { btn.disabled = true; btn.textContent = 'ПРОВЕРКА...'; }
+        showTgAuthMsg('Проверка пароля 2FA...', 'info');
+        const fd = new FormData();
+        fd.append('password', password);
+        try {
+            const res = await fetch('/api/auth/password', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (res.ok) {
+                showTgAuthMsg('✓ Авторизация успешно завершена!', 'success');
+                await loadConfigSettings();
+                await loadFiles();
+            } else {
+                showTgAuthMsg('Ошибка: ' + (data.detail || 'Неверный пароль 2FA'), 'error');
+            }
+        } catch (err) {
+            showTgAuthMsg('Ошибка: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'ПОДТВЕРДИТЬ'; }
+        }
+    });
+
+    // Выход из Telegram
+    document.getElementById('tgLogoutBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('tgLogoutBtn');
+        if (!confirm('Выйти из Telegram аккаунта?')) return;
+        if (btn) { btn.disabled = true; btn.textContent = 'ВЫХОД...'; }
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            showTgAuthMsg('Вы вышли из аккаунта', 'info');
+            await loadConfigSettings();
+        } catch (err) {
+            showTgAuthMsg('Ошибка при выходе', 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '🚪 ВЫЙТИ ИЗ TELEGRAM'; }
+        }
+    });
+}
+
+function bindGlobalEvents() {
+    const themeSwitcher = document.getElementById('themeSwitcher');
+    const themeLink = document.getElementById('themeStylesheet');
+    const savedTheme = localStorage.getItem('crowgram_theme') || 'default';
+    if (themeSwitcher) {
+        themeSwitcher.value = savedTheme;
+        themeSwitcher.addEventListener('change', (e) => {
+            const theme = e.target.value;
+            localStorage.setItem('crowgram_theme', theme);
+            if (themeLink) themeLink.href = `/themes/${theme}/theme.css`;
+        });
+    }
+    if (themeLink && savedTheme !== 'default') {
+        themeLink.href = `/themes/${savedTheme}/theme.css`;
+    }
+
+    document.getElementById('navDriveBtn')?.addEventListener('click', (e) => {
+        e.preventDefault(); isTrashView = false; currentFolderId = 0; loadFiles();
     });
 
     document.getElementById('navTrashBtn')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        isTrashView = true;
-        loadFiles();
+        e.preventDefault(); isTrashView = true; loadFiles();
     });
 
     document.getElementById('sidebarToggle')?.addEventListener('click', () => {
         document.getElementById('sidebar')?.classList.toggle('collapsed');
     });
-}
 
-function bindWizardEvents() {
-    // НАЗАД К КЛЮЧАМ
-    document.getElementById('wizardBackToStep1Btn')?.addEventListener('click', () => {
-        clearWizardError();
-        document.getElementById('wizardStep2').style.display = 'none';
-        document.getElementById('wizardStep1').style.display = 'block';
-    });
-
-    // ШАГ 1: КЛЮЧИ
-    document.getElementById('wizardSaveApiBtn')?.addEventListener('click', async (e) => {
-        e.preventDefault();
-        clearWizardError();
-
-        const btn = document.getElementById('wizardSaveApiBtn');
-        const apiId = document.getElementById('wizardApiId').value.trim().replace(/\D/g, '');
-        const apiHash = document.getElementById('wizardApiHash').value.trim();
-
-        if (!apiId || !apiHash) {
-            showWizardError('Заполните API ID и API HASH!');
-            return;
-        }
-
-        btn.disabled = true;
-        btn.textContent = 'СОХРАНЕНИЕ...';
-
-        const fd = new FormData();
-        fd.append('api_id', apiId);
-        fd.append('api_hash', apiHash);
-
-        try {
-            const res = await fetch('/api/config', { method: 'POST', body: fd });
-            if (res.ok) {
-                document.getElementById('wizardStep1').style.display = 'none';
-                document.getElementById('wizardStep2').style.display = 'block';
-            } else {
-                const errData = await res.json().catch(() => ({}));
-                showWizardError(errData.detail || 'Ошибка сохранения API ключей');
+    if (window.CrowAPI && typeof window.CrowAPI.on === 'function') {
+        window.CrowAPI.on('languageChanged', () => {
+            if (window.CrowI18n) {
+                window.CrowI18n.applyTranslations();
             }
-        } catch (err) {
-            showWizardError('Ошибка связи с сервером');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'СОХРАНИТЬ И ДАЛЕЕ ➔';
-        }
-    });
-
-    // ШАГ 2: ОТПРАВКА СМС
-    document.getElementById('wizardSendCodeBtn')?.addEventListener('click', async (e) => {
-        e.preventDefault();
-        clearWizardError();
-
-        const btn = document.getElementById('wizardSendCodeBtn');
-        const phone = document.getElementById('wizardPhone').value.trim();
-
-        if (!phone) {
-            showWizardError('Введите номер телефона!');
-            return;
-        }
-
-        btn.disabled = true;
-        btn.textContent = '⏳ ЗАПРОС КОДА У TELEGRAM...';
-
-        const fd = new FormData();
-        fd.append('phone', phone);
-
-        try {
-            const res = await fetch('/api/auth/send-code', { method: 'POST', body: fd });
-            if (res.ok) {
-                document.getElementById('wizardCodeGroup').style.display = 'block';
-                btn.textContent = '✅ КОД ЗАПРОШЕН. ПРОВЕРЬТЕ TELEGRAM';
-            } else {
-                const data = await res.json().catch(() => ({}));
-                showWizardError(data.detail || 'Ошибка отправки кода');
-                btn.disabled = false;
-                btn.textContent = 'ОТПРАВИТЬ КОД';
-            }
-        } catch (e) {
-            showWizardError('Сбой сети при запросе кода');
-            btn.disabled = false;
-            btn.textContent = 'ОТПРАВИТЬ КОД';
-        }
-    });
-
-    // ШАГ 2: ВХОД ПО КОДУ
-    document.getElementById('wizardSignInBtn')?.addEventListener('click', async (e) => {
-        e.preventDefault();
-        clearWizardError();
-
-        const btn = document.getElementById('wizardSignInBtn');
-        const code = document.getElementById('wizardCode').value.trim();
-
-        if (!code) {
-            showWizardError('Введите код подтверждения!');
-            return;
-        }
-
-        btn.disabled = true;
-        btn.textContent = 'ПРОВЕРКА...';
-
-        const fd = new FormData();
-        fd.append('code', code);
-
-        try {
-            const res = await fetch('/api/auth/sign-in', { method: 'POST', body: fd });
-            const data = await res.json().catch(() => ({}));
-
-            if (data.status === 'password_required') {
-                document.getElementById('wizardPasswordGroup').style.display = 'block';
-            } else if (res.ok && data.status === 'success') {
-                document.getElementById('wizardStep2').style.display = 'none';
-                document.getElementById('wizardStep3').style.display = 'block';
-            } else {
-                showWizardError(data.detail || 'Неверный код!');
-            }
-        } catch (e) {
-            showWizardError('Ошибка проверки кода');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'ПОДТВЕРДИТЬ';
-        }
-    });
-
-    // ШАГ 2: 2FA ПАРОЛЬ
-    document.getElementById('wizardSubmitPasswordBtn')?.addEventListener('click', async (e) => {
-        e.preventDefault();
-        clearWizardError();
-
-        const btn = document.getElementById('wizardSubmitPasswordBtn');
-        const password = document.getElementById('wizardPassword').value;
-
-        if (!password) {
-            showWizardError('Введите 2FA пароль!');
-            return;
-        }
-
-        btn.disabled = true;
-        btn.textContent = 'ВХОД...';
-
-        const fd = new FormData();
-        fd.append('password', password);
-
-        try {
-            const res = await fetch('/api/auth/password', { method: 'POST', body: fd });
-            const data = await res.json().catch(() => ({}));
-
-            if (res.ok && data.status === 'success') {
-                document.getElementById('wizardStep2').style.display = 'none';
-                document.getElementById('wizardStep3').style.display = 'block';
-            } else {
-                showWizardError(data.detail || 'Неверный 2FA пароль!');
-            }
-        } catch (e) {
-            showWizardError('Ошибка проверки пароля');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'ВОЙТИ';
-        }
-    });
-
-    // ШАГ 3: СИНХРОНИЗАЦИЯ И ДИСК
-    document.getElementById('wizardStep3NextBtn')?.addEventListener('click', async (e) => {
-        e.preventDefault();
-        clearWizardError();
-
-        const btn = document.getElementById('wizardStep3NextBtn');
-        let chatId = document.getElementById('wizardChatId').value.trim();
-        const importInput = document.getElementById('wizardImportDbInput');
-
-        if (!chatId) chatId = 'me';
-
-        btn.disabled = true;
-        btn.textContent = 'СОХРАНЕНИЕ ДИСКА...';
-
-        // Если прикрепили файл импорта БД — загружаем его
-        if (importInput && importInput.files.length > 0) {
-            const file = importInput.files[0];
-            const reader = new FileReader();
-            reader.onload = async (evt) => {
-                try {
-                    await fetch('/api/local/import-db', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: evt.target.result
-                    });
-                } catch (e) {}
-            };
-            reader.readAsText(file);
-        }
-
-        const fd = new FormData();
-        fd.append('letter', 'C');
-        fd.append('label', 'Основной');
-        fd.append('tg_chat_id', chatId);
-
-        try {
-            await fetch('/api/drives', { method: 'POST', body: fd });
-            document.getElementById('wizardStep3').style.display = 'none';
-            document.getElementById('wizardStep4').style.display = 'block';
-        } catch (e) {
-            showWizardError('Ошибка сохранения диска');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'ПЕРЕЙТИ К ЗАЩИТЕ ➔';
-        }
-    });
-
-    // ШАГ 4: УСТАНОВКА ЛОКАЛЬНОГО ПАРОЛЯ ПРИЛОЖЕНИЯ
-    document.getElementById('wizardFinishAllBtn')?.addEventListener('click', async (e) => {
-        e.preventDefault();
-        clearWizardError();
-
-        const btn = document.getElementById('wizardFinishAllBtn');
-        const pass = document.getElementById('wizardAppPassword').value;
-        const hint = document.getElementById('wizardAppPasswordHint').value;
-
-        btn.disabled = true;
-        btn.textContent = 'ФИНАЛИЗАЦИЯ...';
-
-        if (pass) {
-            const fd = new FormData();
-            fd.append('password', pass);
-            fd.append('hint', hint);
-            try {
-                await fetch('/api/config/app-password', { method: 'POST', body: fd });
-            } catch (e) {}
-        }
-
-        finishAuthAndOpenApp();
-    });
-}
-
-async function checkAppAuthStatus() {
-    try {
-        const res = await fetch('/api/config?_t=' + Date.now());
-        if (res.ok) {
-            const cfg = await res.json();
-            if (!cfg.is_authorized) {
-                document.getElementById('wizardModal').style.display = 'flex';
-            } else {
-                document.getElementById('wizardModal').style.display = 'none';
-                initAppCore();
-            }
-        }
-    } catch (e) {}
+            loadConfig();
+            renderBreadcrumbs();
+            renderView(window.currentFolderFiles || []);
+            updateBatchPanel();
+        });
+    }
 }

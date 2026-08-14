@@ -80,13 +80,17 @@ async def upload_file(
             
     file_size = temp_path.stat().st_size
     chunk_size = int(get_config("chunk_size") or CHUNK_SIZE_BYTES)
+    total_chunks = max(1, (file_size + chunk_size - 1) // chunk_size) if file_size > 0 else 1
     
     upload_tasks[task_id] = {
-        "status": "processing", "completed_bytes": 0, "current_chunk_bytes": 0, 
-        "total_size": file_size, "start_time": time.time(), "is_paused": False, "is_cancelled": False
+        "task_id": task_id, "status": "uploading_to_tg", "filename": file.filename,
+        "total_size": file_size, "chunk_size": chunk_size, "total_chunks": total_chunks,
+        "current_chunk": 1, "completed_chunks": 0, "uploaded_bytes": 0, "percent": 0,
+        "speed_mbps": 0.0, "speed_text": "0.0 MB/s", "error": None, "file_id": None
     }
     
     async def background_upload():
+        task = upload_tasks[task_id]
         try:
             chunks_data_to_save = []
             completed_bytes = 0
@@ -94,39 +98,63 @@ async def upload_file(
             with open(temp_path, "rb") as f:
                 chunk_index = 0
                 while True:
-                    if upload_tasks[task_id]["is_cancelled"]:
-                        upload_tasks[task_id]["status"] = "cancelled"
+                    if task.get("is_cancelled"):
+                        task["status"] = "cancelled"
                         return
                     chunk_data = f.read(chunk_size)
                     if not chunk_data: break
+                    chunk_len = len(chunk_data)
+                    task["current_chunk"] = chunk_index + 1
                     chunk_file_path = TEMP_DIR / f"temp_{task_id}_{chunk_index}.tmp"
                     sha256 = hashlib.sha256(chunk_data).hexdigest()
                     with open(chunk_file_path, "wb") as cf: cf.write(chunk_data)
                         
-                    async def progress_tracker(current, total):
-                        upload_tasks[task_id]["current_chunk_bytes"] = current
+                    last_time = [time.time()]
+                    last_bytes = [0]
+                    def progress_tracker(current, total, *args):
+                        task["uploaded_bytes"] = completed_bytes + current
+                        if file_size > 0:
+                            task["percent"] = min(99, int((task["uploaded_bytes"] / file_size) * 100))
+                        now = time.time()
+                        dt = now - last_time[0]
+                        if dt >= 0.3:
+                            db = current - last_bytes[0]
+                            if db > 0:
+                                spd = round((db / (1024 * 1024)) / dt, 2)
+                                task["speed_mbps"] = spd
+                                task["speed_text"] = f"{spd:.1f} MB/s" if spd >= 1.0 else f"{spd * 1024:.0f} KB/s"
+                            last_time[0] = now
+                            last_bytes[0] = current
                         
                     msg_id = await tg_manager.upload_chunk(chunk_file_path, chat_target, progress_callback=progress_tracker)
-                    chunks_data_to_save.append({"index": chunk_index, "msg_id": msg_id, "size": len(chunk_data), "sha256": sha256})
+                    chunks_data_to_save.append({"index": chunk_index, "msg_id": msg_id, "size": chunk_len, "sha256": sha256})
                     if chunk_file_path.exists(): chunk_file_path.unlink()
-                    completed_bytes += len(chunk_data)
-                    upload_tasks[task_id]["completed_bytes"] = completed_bytes
-                    upload_tasks[task_id]["current_chunk_bytes"] = 0
+                    completed_bytes += chunk_len
+                    task["completed_chunks"] = chunk_index + 1
+                    task["uploaded_bytes"] = completed_bytes
+                    if file_size > 0:
+                        task["percent"] = min(99, int((completed_bytes / file_size) * 100))
                     chunk_index += 1
             
             file_id = add_file_record(file.filename, file_size, p_id, thumb, drive_id)
             for c in chunks_data_to_save:
                 add_chunk_record(file_id, c["index"], c["msg_id"], c["size"], c["sha256"])
-            upload_tasks[task_id]["status"] = "done"
+            task["file_id"] = file_id
+            task["status"] = "done"
+            task["percent"] = 100
+            task["uploaded_bytes"] = file_size
+            task["completed_chunks"] = total_chunks
+            task["speed_mbps"] = 0.0
+            task["speed_text"] = ""
         except Exception as e: 
-            upload_tasks[task_id]["status"] = "error"
-            upload_tasks[task_id]["error"] = str(e)
+            task["status"] = "error"
+            task["error"] = str(e)
         finally:
             if temp_path.exists(): temp_path.unlink()
 
     import asyncio
     asyncio.create_task(background_upload())
-    return {"status": "success", "task_id": task_id}
+    return {"status": "processing", "task_id": task_id, "total_chunks": total_chunks, "total_size": file_size}
 
 @router.post("/upload/cancel/{task_id}")
 async def cancel_upload(task_id: str):

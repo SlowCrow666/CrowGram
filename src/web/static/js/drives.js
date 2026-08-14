@@ -2,79 +2,62 @@ document.addEventListener('DOMContentLoaded', () => {
     const driveModal = document.getElementById('driveModal');
     const openDriveModalBtn = document.getElementById('openDriveModalBtn');
     const closeDriveBtn = document.getElementById('closeDriveBtn');
+    const cancelDriveBtn = document.getElementById('cancelDriveBtn');
     const driveForm = document.getElementById('driveForm');
     const blockCreateNew = document.getElementById('blockCreateNew');
     const blockLinkExisting = document.getElementById('blockLinkExisting');
     const existingChannelSelect = document.getElementById('existingChannelSelect');
-    const drivesList = document.getElementById('drivesList');
-
-    window.currentDriveId = 1;
 
     if (openDriveModalBtn) {
         openDriveModalBtn.addEventListener('click', () => {
-            driveModal.style.display = 'flex';
+            if (driveModal) driveModal.style.display = 'flex';
             loadTgChannels();
         });
     }
 
     if (closeDriveBtn) {
         closeDriveBtn.addEventListener('click', () => {
-            driveModal.style.display = 'none';
+            if (driveModal) driveModal.style.display = 'none';
+        });
+    }
+
+    if (cancelDriveBtn) {
+        cancelDriveBtn.addEventListener('click', () => {
+            if (driveModal) driveModal.style.display = 'none';
         });
     }
 
     document.querySelectorAll('input[name="driveAction"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
             if (e.target.value === 'create_new') {
-                blockCreateNew.style.display = 'block';
-                blockLinkExisting.style.display = 'none';
+                if (blockCreateNew) blockCreateNew.style.display = 'block';
+                if (blockLinkExisting) blockLinkExisting.style.display = 'none';
             } else {
-                blockCreateNew.style.display = 'none';
-                blockLinkExisting.style.display = 'block';
+                if (blockCreateNew) blockCreateNew.style.display = 'none';
+                if (blockLinkExisting) blockLinkExisting.style.display = 'block';
             }
         });
     });
 
     async function loadTgChannels() {
+        if (!existingChannelSelect) return;
         try {
             const res = await fetch('/api/tg/channels');
-            const channels = await res.json();
-            existingChannelSelect.innerHTML = '';
-            channels.forEach(ch => {
-                const opt = document.createElement('option');
-                opt.value = ch.id;
-                opt.text = ch.title;
-                existingChannelSelect.appendChild(opt);
-            });
+            if (res.ok) {
+                const channels = await res.json();
+                const savedMsgText = window.t ? window.t('driveModal.savedMessagesOption') : '💬 Избранное (Saved Messages)';
+                existingChannelSelect.innerHTML = `<option value="me">${savedMsgText}</option>`;
+                channels.forEach(ch => {
+                    if (ch.id !== 'me') {
+                        const opt = document.createElement('option');
+                        opt.value = ch.id;
+                        opt.text = `📢 ${ch.title}`;
+                        existingChannelSelect.appendChild(opt);
+                    }
+                });
+            }
         } catch (err) {
             console.error("Ошибка загрузки каналов", err);
-            existingChannelSelect.innerHTML = '<option>Ошибка загрузки</option>';
-        }
-    }
-
-    async function loadDrives() {
-        try {
-            const res = await fetch('/api/drives');
-            const drives = await res.json();
-            drivesList.innerHTML = '';
-            drives.forEach(drive => {
-                const a = document.createElement('a');
-                a.href = '#';
-                a.className = `nav-link ${drive.id === window.currentDriveId ? 'active' : ''}`;
-                a.innerHTML = `<span class="nav-icon">💽</span><span class="nav-text">${drive.letter}: ${drive.label}</span>`;
-                a.onclick = (e) => {
-                    e.preventDefault();
-                    window.currentDriveId = drive.id;
-                    loadDrives();
-                    
-                    if (typeof window.loadFiles === 'function') {
-                        window.loadFiles(); 
-                    }
-                };
-                drivesList.appendChild(a);
-            });
-        } catch (err) {
-            console.error("Ошибка загрузки дисков", err);
         }
     }
 
@@ -82,34 +65,40 @@ document.addEventListener('DOMContentLoaded', () => {
         driveForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData();
-            formData.append('letter', document.getElementById('driveLetterInput').value.toUpperCase());
-            formData.append('label', document.getElementById('driveLabelInput').value);
+            formData.append('letter', (document.getElementById('driveLetterInput').value || 'D').toUpperCase());
+            formData.append('label', document.getElementById('driveLabelInput').value.trim() || 'Drive');
             
-            const action = document.querySelector('input[name="driveAction"]:checked').value;
+            const actionRadio = document.querySelector('input[name="driveAction"]:checked');
+            const action = actionRadio ? actionRadio.value : 'link_existing';
             formData.append('action', action);
             
             if (action === 'create_new') {
-                formData.append('title', document.getElementById('newChannelTitle').value);
+                const titleInput = document.getElementById('newChannelTitle');
+                formData.append('title', titleInput ? titleInput.value.trim() : 'Storage');
             } else {
-                formData.append('tg_chat_id', existingChannelSelect.value);
+                formData.append('tg_chat_id', existingChannelSelect ? existingChannelSelect.value : 'me');
             }
 
             const btn = driveForm.querySelector('button[type="submit"]');
-            const originalText = btn.innerText;
-            btn.innerText = 'СОХРАНЕНИЕ...';
+            const originalText = btn ? btn.innerText : '';
+            if (btn) btn.innerText = '⏳ ...';
             
             try {
-                await fetch('/api/drives', { method: 'POST', body: formData });
-                driveModal.style.display = 'none';
-                driveForm.reset();
-                loadDrives();
+                const res = await fetch('/api/drives', { method: 'POST', body: formData });
+                if (res.ok) {
+                    if (driveModal) driveModal.style.display = 'none';
+                    driveForm.reset();
+                    if (typeof window.loadDrives === 'function') {
+                        window.loadDrives();
+                    }
+                } else {
+                    alert('Ошибка при создании диска');
+                }
             } catch (err) {
-                alert('Ошибка при сохранении диска');
+                alert('Ошибка при сохранении диска: ' + (err.message || err));
             } finally {
-                btn.innerText = originalText;
+                if (btn) btn.innerText = originalText;
             }
         });
     }
-
-    loadDrives();
 });
