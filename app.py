@@ -517,6 +517,14 @@ async def list_files(drive_id: int = Query(1)):
 async def list_trash_files():
     return JSONResponse(content=list_trash_db())
 
+@app.post("/api/trash/empty")
+async def empty_trash():
+    tasks = empty_trash_db()
+    for tg_chat_id, msg_ids in tasks.items():
+        asyncio.create_task(tg_manager.delete_messages_batch(tg_chat_id, msg_ids))
+    asyncio.create_task(push_sync_background())
+    return {"status": "success"}
+
 @app.post("/api/folders")
 async def create_folder(name: str = Form(...), parent_id: Optional[str] = Form(0), drive_id: int = Form(1)):
     p_id = int(parent_id) if parent_id and str(parent_id).isdigit() else 0
@@ -801,8 +809,8 @@ async def download_zip(ids: str = Query(...)):
     return StreamingResponse(zip_buffer, media_type="application/zip", headers=headers)
 
 @app.post("/api/files/{file_id}/trash")
-async def move_to_trash(file_id: int):
-    move_to_trash_db(file_id)
+async def move_to_trash(file_id: int, is_folder: bool = Query(False)):
+    move_to_trash_db(file_id, is_folder=is_folder)
     asyncio.create_task(push_sync_background())
     return {"status": "success"}
 

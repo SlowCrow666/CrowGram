@@ -9,6 +9,7 @@ let currentViewMode = 'table';
 let uploadQueue = [];
 let maxConcurrentUploads = 3;
 let activeUploads = 0;
+let clipboardItems = null;
 
 window.CrowAPI = {
     plugins: {},
@@ -67,6 +68,7 @@ window.CrowAPI = {
 
 document.addEventListener('DOMContentLoaded', () => {
     bindGlobalEvents();
+    bindToolbarEvents();
     bindBatchEvents();
     bindModalEvents();
     initUploadQueueEvents();
@@ -175,6 +177,20 @@ async function loadDrives() {
 
 async function loadFiles() {
     try {
+        const createFolderBtn = document.getElementById('createFolderBtn');
+        const emptyTrashBtn = document.getElementById('emptyTrashBtn');
+        const pasteBtn = document.getElementById('pasteBtn');
+
+        if (isTrashView) {
+            if (createFolderBtn) createFolderBtn.style.display = 'none';
+            if (emptyTrashBtn) emptyTrashBtn.style.display = 'inline-flex';
+            if (pasteBtn) pasteBtn.style.display = 'none';
+        } else {
+            if (createFolderBtn) createFolderBtn.style.display = 'inline-flex';
+            if (emptyTrashBtn) emptyTrashBtn.style.display = 'none';
+            if (pasteBtn) pasteBtn.style.display = (clipboardItems && clipboardItems.ids && clipboardItems.ids.length > 0) ? 'inline-flex' : 'none';
+        }
+
         const endpoint = isTrashView 
             ? '/api/trash/files' 
             : `/api/files?drive_id=${currentDriveId}`;
@@ -192,9 +208,45 @@ async function loadFiles() {
                 : files.filter(item => Number(item.parent_id || 0) === Number(currentFolderId));
             
             window.currentFolderFiles = filtered;
-            renderView(filtered);
+            applyFilterAndSort();
         }
-    } catch (e) {}
+    } catch (e) {
+        console.warn('Error loading files:', e);
+    }
+}
+
+function applyFilterAndSort() {
+    let items = window.currentFolderFiles || [];
+    const query = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+    const sortVal = document.getElementById('sortSelect')?.value || 'date_desc';
+
+    if (query) {
+        items = items.filter(item => (item.name || '').toLowerCase().includes(query));
+    }
+
+    items = [...items].sort((a, b) => {
+        if (a.is_folder && !b.is_folder) return -1;
+        if (!a.is_folder && b.is_folder) return 1;
+
+        switch (sortVal) {
+            case 'date_asc':
+                return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+            case 'date_desc':
+                return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+            case 'name_asc':
+                return (a.name || '').localeCompare(b.name || '');
+            case 'name_desc':
+                return (b.name || '').localeCompare(a.name || '');
+            case 'size_desc':
+                return (b.size || 0) - (a.size || 0);
+            case 'size_asc':
+                return (a.size || 0) - (b.size || 0);
+            default:
+                return 0;
+        }
+    });
+
+    renderView(items);
 }
 
 function renderView(items) {
@@ -802,14 +854,91 @@ function updateBatchPanel() {
     }
 }
 
+async function createFolderPrompt() {
+    const defaultText = window.t('commander.promptNewFolder') || 'Название новой папки:';
+    const folderName = prompt(defaultText);
+    if (!folderName || !folderName.trim()) return;
+
+    const fd = new FormData();
+    fd.append('name', folderName.trim());
+    fd.append('parent_id', currentFolderId || 0);
+    fd.append('drive_id', currentDriveId || 1);
+
+    try {
+        const res = await fetch('/api/folders', { method: 'POST', body: fd });
+        if (res.ok) {
+            await loadFiles();
+        } else {
+            const data = await res.json().catch(() => ({}));
+            alert(data.detail || 'Ошибка создания папки');
+        }
+    } catch (err) {
+        alert('Ошибка сети: ' + err.message);
+    }
+}
+window.createFolderPrompt = createFolderPrompt;
+
+function bindToolbarEvents() {
+    document.getElementById('createFolderBtn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        createFolderPrompt();
+    });
+
+    document.getElementById('emptyTrashBtn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        if (!confirm('Вы уверены, что хотите навсегда очистить корзину?')) return;
+        try {
+            const res = await fetch('/api/trash/empty', { method: 'POST' });
+            if (res.ok) {
+                await loadFiles();
+            } else {
+                alert('Ошибка при очистке корзины');
+            }
+        } catch (err) {
+            alert('Ошибка сети: ' + err.message);
+        }
+    });
+
+    document.getElementById('searchInput')?.addEventListener('input', () => {
+        applyFilterAndSort();
+    });
+
+    document.getElementById('sortSelect')?.addEventListener('change', () => {
+        applyFilterAndSort();
+    });
+
+    document.getElementById('viewSwitcher')?.addEventListener('change', (e) => {
+        currentViewMode = e.target.value;
+        applyFilterAndSort();
+    });
+
+    document.getElementById('pasteBtn')?.addEventListener('click', async () => {
+        if (!clipboardItems || !clipboardItems.ids || clipboardItems.ids.length === 0) return;
+        for (const id of clipboardItems.ids) {
+            const fd = new FormData();
+            fd.append('new_parent_id', currentFolderId || 0);
+            fd.append('new_drive_id', currentDriveId || 1);
+            try {
+                await fetch(`/api/files/${id}/move`, { method: 'POST', body: fd });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+        clipboardItems = null;
+        const pasteBtn = document.getElementById('pasteBtn');
+        if (pasteBtn) pasteBtn.style.display = 'none';
+        await loadFiles();
+    });
+}
+
 function bindBatchEvents() {
     document.getElementById('selectAllCheckbox')?.addEventListener('change', (e) => {
         const checked = e.target.checked;
         selectedFileIds.clear();
         if (checked) {
-            allItems.forEach(item => selectedFileIds.add(item.id));
+            (window.currentFolderFiles || allItems).forEach(item => selectedFileIds.add(item.id));
         }
-        renderView(allItems);
+        applyFilterAndSort();
         updateBatchPanel();
     });
 
@@ -825,6 +954,16 @@ function bindBatchEvents() {
     document.getElementById('downloadZipBtn')?.addEventListener('click', () => {
         const ids = Array.from(selectedFileIds).join(',');
         window.open(`/api/download-zip?ids=${ids}`, '_blank');
+    });
+
+    document.getElementById('moveBatchBtn')?.addEventListener('click', () => {
+        if (selectedFileIds.size === 0) return;
+        clipboardItems = { action: 'move', ids: Array.from(selectedFileIds) };
+        const pasteBtn = document.getElementById('pasteBtn');
+        if (pasteBtn) pasteBtn.style.display = 'inline-flex';
+        selectedFileIds.clear();
+        updateBatchPanel();
+        applyFilterAndSort();
     });
 
     document.getElementById('deleteBatchBtn')?.addEventListener('click', async () => {
