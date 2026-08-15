@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CrowGram — Облачное хранилище</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=1.0.1">
     <link id="themeStylesheet" rel="stylesheet" href="">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="/static/js/artplayer.js"></script>
+    <script src="/static/js/artplayer.js?v=1.0.1"></script>
     <style>
         .plugin-bottom-bar {
             position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000;
@@ -260,7 +260,7 @@
                     </div>
                 </div>
 
-                <div id="wizardAuth2faBox" style="display: none; margin-top: 12px;">
+                <div id="step3-2fa-container" class="wizardAuth2faBox" style="display: none; margin-top: 12px;">
                     <p style="font-size: 11px; color: var(--accent-amber); margin-bottom: 6px;" data-i18n="settings.passPrompt">🔐 Требуется двухфакторный пароль (2FA):</p>
                     <div style="display: flex; gap: 8px;">
                         <input type="password" id="wizard2faInput" placeholder="Облачный пароль" class="hud-input" style="flex: 1;">
@@ -308,24 +308,24 @@
                 </div>
 
                 <!-- Разделитель ИЛИ -->
-                <div style="display: flex; align-items: center; text-align: center; margin: 16px 0 12px 0; color: var(--text-muted); font-size: 11px; font-weight: 600;">
+                <div class="wizard-divider" style="display: flex; align-items: center; text-align: center; margin: 18px 0 14px 0; color: var(--text-muted); font-size: 11px; font-weight: 600;">
                     <span style="flex: 1; border-bottom: 1px dashed var(--border-subtle);"></span>
                     <span style="padding: 0 12px; letter-spacing: 1px;" data-i18n="wizard.orDivider">— ИЛИ —</span>
                     <span style="flex: 1; border-bottom: 1px dashed var(--border-subtle);"></span>
                 </div>
 
                 <!-- Вариант Б: Восстановление существующей базы -->
-                <div style="background: rgba(255,255,255,0.03); border: 1px dashed var(--border-hover); border-radius: var(--radius-control); padding: 14px;">
+                <div class="wizard-restore-section" style="background: rgba(255,255,255,0.03); border: 1px dashed var(--border-hover); border-radius: var(--radius-control); padding: 14px;">
                     <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px;" data-i18n="wizard.step4_restore_title">У вас уже есть облако CrowGram?</div>
                     <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;" data-i18n="wizard.step4_restore_desc">Восстановите все ваши диски, папки и файлы в 1 клик без создания пустого диска.</div>
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button type="button" class="hud-btn primary" id="wizardStep4PullBtn" style="flex: 1; font-size: 11px; padding: 8px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="wizard.step4_restore_tg">
+                        <button type="button" class="hud-btn primary" id="btnWizardRestoreTg" style="flex: 1; font-size: 11px; padding: 8px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="wizard.step4_restore_tg">
                             📥 Восстановить из Telegram (Pull)
                         </button>
-                        <button type="button" class="hud-btn" id="wizardStep4FileBtn" style="flex: 1; font-size: 11px; padding: 8px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="wizard.step4_restore_file">
-                            📁 Загрузить бэкап из файла (.json)
+                        <button type="button" class="hud-btn" id="btnWizardRestoreFile" style="flex: 1; font-size: 11px; padding: 8px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="wizard.step4_restore_file">
+                            📁 Из файла бэкапа (.json)
                         </button>
-                        <input type="file" id="wizardStep4FileInput" accept=".json" style="display: none;">
+                        <input type="file" id="wizardBackupFileInput" accept=".json" style="display: none;">
                     </div>
                 </div>
 
@@ -596,9 +596,9 @@
     </div>
 
     <!-- МОДУЛИ СКРИПТОВ -->
-    <script src="/static/js/i18n.js"></script>
-    <script src="/static/js/wizard.js"></script>
-    <script src="/static/js/drives.js"></script>
-    <script src="/static/js/main.js"></script>
+    <script src="/static/js/i18n.js?v=1.0.1"></script>
+    <script src="/static/js/wizard.js?v=1.0.1"></script>
+    <script src="/static/js/drives.js?v=1.0.1"></script>
+    <script src="/static/js/main.js?v=1.0.1"></script>
 </body>
 </html>

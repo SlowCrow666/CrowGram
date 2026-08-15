@@ -1,12 +1,26 @@
+import sys
 import os
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+if getattr(sys, 'frozen', False):
+    BUNDLE_DIR = Path(getattr(sys, '_MEIPASS', Path(sys.executable).resolve().parent))
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BUNDLE_DIR = Path(__file__).resolve().parent.parent
+    BASE_DIR = Path(__file__).resolve().parent.parent
 
 DATA_DIR = BASE_DIR / "data"
 TEMP_DIR = BASE_DIR / "temp"
-WEB_DIR = BASE_DIR / "src" / "web"
-LOCALES_DIR = BASE_DIR / "src" / "locales"
+
+# Search for web assets in BUNDLE_DIR first (from PyInstaller _MEIPASS), fallback to BASE_DIR
+if (BUNDLE_DIR / "src" / "web").exists():
+    WEB_DIR = BUNDLE_DIR / "src" / "web"
+elif (BASE_DIR / "src" / "web").exists():
+    WEB_DIR = BASE_DIR / "src" / "web"
+else:
+    WEB_DIR = BASE_DIR / "web"
+
+LOCALES_DIR = (BUNDLE_DIR / "src" / "locales") if (BUNDLE_DIR / "src" / "locales").exists() else (BASE_DIR / "src" / "locales")
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)

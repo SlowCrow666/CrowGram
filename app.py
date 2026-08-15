@@ -206,6 +206,16 @@ async def lifespan(app: FastAPI):
         except Exception: pass
 
 app = FastAPI(title="CrowGram Cloud Storage", lifespan=lifespan)
+
+@app.middleware("http")
+async def add_no_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 app.mount("/locales", StaticFiles(directory=str(LOCALES_DIR)), name="locales")
 app.mount("/plugins", StaticFiles(directory=str(PLUGINS_DIR)), name="plugins")

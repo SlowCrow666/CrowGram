@@ -165,8 +165,10 @@
                         if (res.ok && (data.status === 'ok' || data.status === 'success' || data.status === 'authorized')) {
                             this.onAuthSuccess(data.user);
                         } else if (data.status === '2fa_required' || data.status === 'password_required' || data.status === 'password_needed') {
-                            document.getElementById('wizardAuthCodeBox').style.display = 'none';
-                            document.getElementById('wizardAuth2faBox').style.display = 'block';
+                            const codeBox = document.getElementById('wizardAuthCodeBox');
+                            if (codeBox) codeBox.style.display = 'none';
+                            const box2fa = document.getElementById('step3-2fa-container') || document.getElementById('wizardAuth2faBox');
+                            if (box2fa) box2fa.style.display = 'block';
                             this.showMsg('wizardStep3Msg', '🔐 ' + (window.t('settings.passPrompt') || 'Введите облачный пароль 2FA'), 'info');
                             setTimeout(() => document.getElementById('wizard2faInput')?.focus(), 100);
                         } else {
@@ -262,7 +264,7 @@
             }
 
             // Step 4: Quick Restore from Telegram
-            const step4PullBtn = document.getElementById('wizardStep4PullBtn');
+            const step4PullBtn = document.getElementById('btnWizardRestoreTg') || document.getElementById('wizardStep4PullBtn');
             if (step4PullBtn) {
                 step4PullBtn.onclick = async () => {
                     step4PullBtn.disabled = true;
@@ -292,8 +294,8 @@
             }
 
             // Step 4: Import Database from File (.json)
-            const step4FileBtn = document.getElementById('wizardStep4FileBtn');
-            const step4FileInput = document.getElementById('wizardStep4FileInput');
+            const step4FileBtn = document.getElementById('btnWizardRestoreFile') || document.getElementById('wizardStep4FileBtn');
+            const step4FileInput = document.getElementById('wizardBackupFileInput') || document.getElementById('wizardStep4FileInput');
             if (step4FileBtn && step4FileInput) {
                 step4FileBtn.onclick = () => step4FileInput.click();
                 step4FileInput.onchange = async (e) => {
