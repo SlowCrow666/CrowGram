@@ -133,12 +133,17 @@
                 newPassPlaceholder: 'Новый пароль',
                 confirmPassPlaceholder: 'Повторите новый пароль',
                 passHintPlaceholder: 'Подсказка для пароля',
-                passEmailPlaceholder: 'Email для восстановления',
                 updatePassBtn: 'ОБНОВИТЬ ПАРОЛЬ',
+                backupTitle: 'РЕЗЕРВНОЕ КОПИРОВАНИЕ (JSON)',
+                backupDesc: 'Экспорт и импорт полной базы данных без повторной передачи файлов в сеть.',
+                exportBackupBtn: '📥 Скачать дамп (JSON)',
+                importBackupBtn: '📤 Восстановить из файла',
                 syncTitle: 'СИНХРОНИЗАЦИЯ (ОБЛАКО)',
                 syncDesc: 'Структура файлов и дисков сохраняется в вашем Избранном (Saved Messages).',
                 pullSyncBtn: '📥 Скачать из Telegram',
-                pushSyncBtn: '📤 Сохранить принудительно'
+                pushSyncBtn: '📤 Сохранить принудительно',
+                backupSuccess: '✓ Резервная копия успешно восстановлена!',
+                backupError: 'Ошибка при восстановлении базы данных'
             },
             driveModal: {
                 title: 'ДОБАВЛЕНИЕ ДИСКА',
@@ -179,6 +184,10 @@
                 step4_default_drive: 'Основной диск',
                 step5_title: '🎉 Настройка успешно завершена!',
                 step5_desc: 'CrowGram полностью готов к работе. Загружайте файлы любого размера, стримьте видео, слушайте аудио и управляйте архивами!',
+                step5_restore_title: '📥 Восстановление существующей базы:',
+                step5_restore_desc: 'Если у вас уже была база на этом аккаунте или сохранённый JSON-дамп',
+                step5_pull_btn: '📥 Из Telegram (Pull)',
+                step5_import_btn: '📄 Из файла (.json)',
                 openStorageBtn: '🚀 ОТКРЫТЬ ХРАНИЛИЩЕ'
             },
             commander: {
@@ -349,10 +358,16 @@
                 passHintPlaceholder: 'Password Hint',
                 passEmailPlaceholder: 'Recovery Email',
                 updatePassBtn: 'UPDATE PASSWORD',
+                backupTitle: 'BACKUP & RESTORE (JSON)',
+                backupDesc: 'Export and import full database snapshot without re-uploading file data.',
+                exportBackupBtn: '📥 Export Dump (JSON)',
+                importBackupBtn: '📤 Restore from File',
                 syncTitle: 'CLOUD SYNCHRONIZATION',
                 syncDesc: 'File and drive index structure is preserved in your Saved Messages.',
                 pullSyncBtn: '📥 Pull from Telegram',
-                pushSyncBtn: '📤 Push to Telegram'
+                pushSyncBtn: '📤 Push to Telegram',
+                backupSuccess: '✓ Database backup restored successfully!',
+                backupError: 'Error restoring database backup'
             },
             driveModal: {
                 title: 'ADD STORAGE DRIVE',
@@ -393,6 +408,10 @@
                 step4_default_drive: 'Main Drive',
                 step5_title: '🎉 Setup Completed Successfully!',
                 step5_desc: 'CrowGram is ready to go. Upload files of any size, stream video, play music, and manage files!',
+                step5_restore_title: '📥 Restore Existing Database:',
+                step5_restore_desc: 'If you already have a database in Telegram or a saved JSON dump',
+                step5_pull_btn: '📥 From Telegram (Pull)',
+                step5_import_btn: '📄 From File (.json)',
                 openStorageBtn: '🚀 OPEN STORAGE'
             },
             commander: {

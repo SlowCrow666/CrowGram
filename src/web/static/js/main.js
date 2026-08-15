@@ -1445,6 +1445,38 @@ function bindModalEvents() {
         }
     });
 
+    // Локальный импорт базы данных (JSON)
+    const importBackupBtn = document.getElementById('importBackupBtn');
+    const backupJsonInput = document.getElementById('backupJsonInput');
+
+    importBackupBtn?.addEventListener('click', () => backupJsonInput?.click());
+    backupJsonInput?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        showTgAuthMsg('⏳ Восстановление базы данных из файла...', 'info');
+        if (importBackupBtn) { importBackupBtn.disabled = true; importBackupBtn.textContent = '⏳ ИМПОРТ...'; }
+
+        try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const res = await fetch('/api/backup/import', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (res.ok) {
+                showTgAuthMsg('✓ ' + (data.message || 'База данных успешно восстановлена!'), 'success');
+                await loadDrives();
+                await loadFiles();
+            } else {
+                showTgAuthMsg('Ошибка: ' + (data.detail || 'Не удалось импортировать файл'), 'error');
+            }
+        } catch (err) {
+            showTgAuthMsg('Ошибка: ' + err.message, 'error');
+        } finally {
+            if (importBackupBtn) { importBackupBtn.disabled = false; importBackupBtn.textContent = '📤 Восстановить из файла'; }
+            if (backupJsonInput) backupJsonInput.value = '';
+        }
+    });
+
     // Облачная синхронизация Telegram (Pull / Push)
     document.getElementById('pullSyncBtn')?.addEventListener('click', async () => {
         const btn = document.getElementById('pullSyncBtn');

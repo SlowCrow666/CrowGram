@@ -240,6 +240,66 @@
                 };
             }
 
+            // Step 5: Quick Restore from Telegram
+            const pullSyncBtn = document.getElementById('wizardPullSyncBtn');
+            if (pullSyncBtn) {
+                pullSyncBtn.onclick = async () => {
+                    pullSyncBtn.disabled = true;
+                    pullSyncBtn.textContent = '⏳ ...';
+                    this.showMsg('wizardStep5Msg', '⏳ Загрузка резервной копии из Telegram...', 'info');
+                    try {
+                        const res = await fetch('/api/sync/pull', { method: 'POST' });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.showMsg('wizardStep5Msg', '✓ ' + (data.message || 'Облако успешно восстановлено!'), 'success');
+                            if (window.loadDrives) await window.loadDrives();
+                            if (window.loadFiles) await window.loadFiles();
+                        } else {
+                            this.showMsg('wizardStep5Msg', data.detail || 'Файл синхронизации не найден в Telegram', 'error');
+                        }
+                    } catch (e) {
+                        this.showMsg('wizardStep5Msg', e.message, 'error');
+                    } finally {
+                        pullSyncBtn.disabled = false;
+                        pullSyncBtn.textContent = window.t('wizard.step5_pull_btn') || '📥 Из Telegram (Pull)';
+                    }
+                };
+            }
+
+            // Step 5: Import Database from File (.json)
+            const importFileBtn = document.getElementById('wizardImportFileBtn');
+            const jsonFileInput = document.getElementById('wizardJsonFileInput');
+            if (importFileBtn && jsonFileInput) {
+                importFileBtn.onclick = () => jsonFileInput.click();
+                jsonFileInput.onchange = async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+
+                    importFileBtn.disabled = true;
+                    importFileBtn.textContent = '⏳ ...';
+                    this.showMsg('wizardStep5Msg', '⏳ Восстановление базы из файла...', 'info');
+                    try {
+                        const fd = new FormData();
+                        fd.append('file', file);
+                        const res = await fetch('/api/backup/import', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.showMsg('wizardStep5Msg', '✓ ' + (data.message || 'База успешно восстановлена!'), 'success');
+                            if (window.loadDrives) await window.loadDrives();
+                            if (window.loadFiles) await window.loadFiles();
+                        } else {
+                            this.showMsg('wizardStep5Msg', data.detail || 'Не удалось импортировать файл', 'error');
+                        }
+                    } catch (err) {
+                        this.showMsg('wizardStep5Msg', err.message, 'error');
+                    } finally {
+                        importFileBtn.disabled = false;
+                        importFileBtn.textContent = window.t('wizard.step5_import_btn') || '📄 Из файла (.json)';
+                        jsonFileInput.value = '';
+                    }
+                };
+            }
+
             // Sidebar trigger
             const navWizardBtn = document.getElementById('navWizardBtn');
             if (navWizardBtn) {

@@ -311,13 +311,26 @@
             </div>
 
             <!-- ШАГ 5: ГОТОВО -->
-            <div class="wizard-content" id="wizardStepBody5" style="display: none; text-align: center; padding: 30px 24px;">
-                <span style="font-size: 48px; display: block; margin-bottom: 10px;">🎉</span>
+            <div class="wizard-content" id="wizardStepBody5" style="display: none; text-align: center; padding: 24px 20px;">
+                <span style="font-size: 42px; display: block; margin-bottom: 8px;">🎉</span>
                 <h3 class="wizard-step-title" style="font-size: 18px;" data-i18n="wizard.step5_title">Настройка успешно завершена!</h3>
-                <p class="wizard-step-desc" style="max-width: 440px; margin: 0 auto 20px auto;" data-i18n="wizard.step5_desc">
+                <p class="wizard-step-desc" style="max-width: 440px; margin: 0 auto 16px auto;" data-i18n="wizard.step5_desc">
                     CrowGram полностью готов к работе. Загружайте файлы любого размера, стримьте видео, слушайте аудио и управляйте архивами!
                 </p>
-                <button type="button" class="hud-btn primary" id="wizardFinishBtn" style="padding: 10px 24px; font-size: 13px; font-weight: 600;" data-i18n="wizard.openStorageBtn">
+
+                <!-- Блок быстрого восстановления -->
+                <div style="background: rgba(255,255,255,0.03); border: 1px dashed var(--border-hover); border-radius: var(--radius-control); padding: 14px; max-width: 440px; margin: 0 auto 18px auto; text-align: left;">
+                    <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;" data-i18n="wizard.step5_restore_title">📥 Восстановление существующей базы:</div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;" data-i18n="wizard.step5_restore_desc">Если у вас уже была база на этом аккаунте или сохранённый JSON-дамп</div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button type="button" class="hud-btn" id="wizardPullSyncBtn" style="flex: 1; font-size: 11px; padding: 7px 10px;" data-i18n="wizard.step5_pull_btn">📥 Из Telegram (Pull)</button>
+                        <button type="button" class="hud-btn" id="wizardImportFileBtn" style="flex: 1; font-size: 11px; padding: 7px 10px;" data-i18n="wizard.step5_import_btn">📄 Из файла (.json)</button>
+                        <input type="file" id="wizardJsonFileInput" accept=".json" style="display: none;">
+                    </div>
+                    <div id="wizardStep5Msg" class="wizard-msg" style="margin-top: 8px;"></div>
+                </div>
+
+                <button type="button" class="hud-btn primary" id="wizardFinishBtn" style="padding: 10px 28px; font-size: 13px; font-weight: 600;" data-i18n="wizard.openStorageBtn">
                     🚀 ОТКРЫТЬ ХРАНИЛИЩЕ
                 </button>
             </div>
@@ -492,6 +505,17 @@
                     </div>
                     <button type="submit" class="hud-btn primary" style="margin-top: 6px;" data-i18n="settings.updatePassBtn">ОБНОВИТЬ ПАРОЛЬ</button>
                 </form>
+            </div>
+
+            <hr class="hud-divider">
+            <div class="auth-block">
+                <h3 data-i18n="settings.backupTitle" style="font-size: 12px;">РЕЗЕРВНОЕ КОПИРОВАНИЕ (JSON)</h3>
+                <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;" data-i18n="settings.backupDesc">Экспорт и импорт полной базы данных без повторной передачи файлов в сеть.</p>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <a href="/api/backup/export" download="crowgram_backup.json" class="hud-btn primary" id="exportBackupBtn" style="flex:1; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center;" data-i18n="settings.exportBackupBtn">📥 Скачать дамп (JSON)</a>
+                    <button type="button" class="hud-btn" id="importBackupBtn" style="flex:1;" data-i18n="settings.importBackupBtn">📤 Восстановить из файла</button>
+                    <input type="file" id="backupJsonInput" accept=".json" style="display: none;">
+                </div>
             </div>
 
             <hr class="hud-divider">
