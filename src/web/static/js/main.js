@@ -1315,7 +1315,7 @@ function bindModalEvents() {
         }
     });
 
-    // Запрос кода в Telegram
+    // Отправка кода авторизации в Telegram
     document.getElementById('tgSendCodeBtn')?.addEventListener('click', async () => {
         const btn = document.getElementById('tgSendCodeBtn');
         const phone = document.getElementById('tgPhoneInput').value.trim();
@@ -1325,12 +1325,16 @@ function bindModalEvents() {
         }
         if (btn) { btn.disabled = true; btn.textContent = 'ОТПРАВКА...'; }
         showTgAuthMsg('Отправка запроса на получение кода...', 'info');
-        const fd = new FormData();
-        fd.append('phone', phone);
         try {
-            const res = await fetch('/api/auth/send-code', { method: 'POST', body: fd });
+            const res = await fetch('/api/auth/send-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: phone })
+            });
             const data = await res.json();
             if (res.ok && data.status === 'code_sent') {
+                window._tg_code_hash = data.phone_code_hash;
+                window._tg_phone = phone;
                 showTgAuthMsg('✓ Код успешно отправлен в Telegram!', 'success');
                 const codeBlock = document.getElementById('tgAuthCodeBlock');
                 if (codeBlock) codeBlock.style.display = 'block';
@@ -1350,19 +1354,30 @@ function bindModalEvents() {
     document.getElementById('tgSignInBtn')?.addEventListener('click', async () => {
         const btn = document.getElementById('tgSignInBtn');
         const code = document.getElementById('tgCodeInput').value.trim();
-        if (!code) {
+        const cleanCode = code.replace(/\s+/g, '').replace(/-/g, '');
+        if (!cleanCode) {
             showTgAuthMsg('Введите код из Telegram', 'error');
             return;
         }
         if (btn) { btn.disabled = true; btn.textContent = 'ВХОД...'; }
         showTgAuthMsg('Проверка кода...', 'info');
-        const fd = new FormData();
-        fd.append('code', code);
+
+        const phone = window._tg_phone || document.getElementById('tgPhoneInput').value.trim();
+        const phoneCodeHash = window._tg_code_hash;
+
         try {
-            const res = await fetch('/api/auth/sign-in', { method: 'POST', body: fd });
+            const res = await fetch('/api/auth/verify_code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone: phone,
+                    code: cleanCode,
+                    phone_code_hash: phoneCodeHash
+                })
+            });
             const data = await res.json();
             if (res.ok) {
-                if (data.status === 'password_required') {
+                if (data.status === '2fa_required' || data.status === 'password_required' || data.status === 'password_needed') {
                     showTgAuthMsg('🔐 Требуется облачный пароль 2FA', 'info');
                     const passBlock = document.getElementById('tgAuthPasswordBlock');
                     if (passBlock) passBlock.style.display = 'block';
@@ -1374,7 +1389,7 @@ function bindModalEvents() {
                     await loadFiles();
                 }
             } else {
-                showTgAuthMsg('Ошибка: ' + (data.detail || 'Неверный код'), 'error');
+                showTgAuthMsg('Ошибка: ' + (data.detail || 'Введён неверный код подтверждения'), 'error');
             }
         } catch (err) {
             showTgAuthMsg('Ошибка: ' + err.message, 'error');
@@ -1393,10 +1408,12 @@ function bindModalEvents() {
         }
         if (btn) { btn.disabled = true; btn.textContent = 'ПРОВЕРКА...'; }
         showTgAuthMsg('Проверка пароля 2FA...', 'info');
-        const fd = new FormData();
-        fd.append('password', password);
         try {
-            const res = await fetch('/api/auth/password', { method: 'POST', body: fd });
+            const res = await fetch('/api/auth/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: password })
+            });
             const data = await res.json();
             if (res.ok) {
                 showTgAuthMsg('✓ Авторизация успешно завершена!', 'success');

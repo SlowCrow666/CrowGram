@@ -110,14 +110,22 @@
                     sendCodeBtn.disabled = true;
                     sendCodeBtn.textContent = '⏳ ...';
                     try {
-                        const fd = new FormData();
-                        fd.append('phone', phone);
-                        const res = await fetch('/api/auth/send-code', { method: 'POST', body: fd });
+                        const res = await fetch('/api/auth/send-code', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ phone: phone })
+                        });
                         const data = await res.json();
                         if (res.ok && data.status === 'code_sent') {
+                            this.currentPhone = phone;
+                            this.phoneCodeHash = data.phone_code_hash;
+                            window._tg_code_hash = data.phone_code_hash;
+                            window._tg_phone = phone;
+
                             document.getElementById('wizardAuthPhoneBox').style.display = 'none';
                             document.getElementById('wizardAuthCodeBox').style.display = 'block';
                             this.showMsg('wizardStep3Msg', window.t('settings.codePrompt'), 'info');
+                            setTimeout(() => document.getElementById('wizardCodeInput')?.focus(), 100);
                         } else {
                             this.showMsg('wizardStep3Msg', data.detail || 'Ошибка отправки кода', 'error');
                         }
@@ -130,29 +138,39 @@
                 };
             }
 
-            // Step 3: Sign In
+            // Step 3: Sign In / Verify Code
             const signInBtn = document.getElementById('wizardSignInBtn');
             if (signInBtn) {
                 signInBtn.onclick = async () => {
                     const code = document.getElementById('wizardCodeInput').value.trim();
-                    if (!code) return;
+                    const cleanCode = code.replace(/\s+/g, '').replace(/-/g, '');
+                    if (!cleanCode) return;
+
+                    const phone = this.currentPhone || window._tg_phone || document.getElementById('wizardPhoneInput').value.trim();
+                    const phoneCodeHash = this.phoneCodeHash || window._tg_code_hash;
 
                     signInBtn.disabled = true;
                     this.showMsg('wizardStep3Msg', '⏳ Проверка кода...', 'info');
                     try {
-                        const fd = new FormData();
-                        fd.append('code', code);
-                        const res = await fetch('/api/auth/sign-in', { method: 'POST', body: fd });
+                        const res = await fetch('/api/auth/verify_code', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                phone: phone,
+                                code: cleanCode,
+                                phone_code_hash: phoneCodeHash
+                            })
+                        });
                         const data = await res.json();
-                        if (res.ok && (data.status === 'success' || data.status === 'authorized')) {
+                        if (res.ok && (data.status === 'ok' || data.status === 'success' || data.status === 'authorized')) {
                             this.onAuthSuccess(data.user);
-                        } else if (data.status === 'password_required' || data.status === 'password_needed') {
+                        } else if (data.status === '2fa_required' || data.status === 'password_required' || data.status === 'password_needed') {
                             document.getElementById('wizardAuthCodeBox').style.display = 'none';
                             document.getElementById('wizardAuth2faBox').style.display = 'block';
                             this.showMsg('wizardStep3Msg', '🔐 ' + (window.t('settings.passPrompt') || 'Введите облачный пароль 2FA'), 'info');
                             setTimeout(() => document.getElementById('wizard2faInput')?.focus(), 100);
                         } else {
-                            this.showMsg('wizardStep3Msg', data.detail || 'Неверный код подтверждения', 'error');
+                            this.showMsg('wizardStep3Msg', data.detail || 'Введён неверный код подтверждения', 'error');
                         }
                     } catch (e) {
                         this.showMsg('wizardStep3Msg', e.message, 'error');
@@ -172,11 +190,13 @@
                     submit2faBtn.disabled = true;
                     this.showMsg('wizardStep3Msg', '⏳ Проверка пароля 2FA...', 'info');
                     try {
-                        const fd = new FormData();
-                        fd.append('password', password);
-                        const res = await fetch('/api/auth/password', { method: 'POST', body: fd });
+                        const res = await fetch('/api/auth/password', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ password: password })
+                        });
                         const data = await res.json();
-                        if (res.ok && (data.status === 'success' || data.status === 'authorized')) {
+                        if (res.ok && (data.status === 'ok' || data.status === 'success' || data.status === 'authorized')) {
                             this.onAuthSuccess(data.user);
                         } else {
                             this.showMsg('wizardStep3Msg', data.detail || 'Неверный 2FA пароль', 'error');

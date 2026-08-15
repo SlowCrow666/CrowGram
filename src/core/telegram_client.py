@@ -161,12 +161,16 @@ class TelegramManager:
             "phone_code_hash": self.sent_code_info.phone_code_hash
         }
 
-    async def sign_in(self, phone: str, code: str):
+    async def sign_in(self, phone: str, code: str, phone_code_hash: str = None):
         from src.core.db import get_config
-        phone_code_hash = getattr(self.sent_code_info, "phone_code_hash", None) or get_config("phone_code_hash")
-        if not phone_code_hash:
-            raise Exception("Сначала запросите код на номер телефона")
+        target_hash = (phone_code_hash or getattr(self.sent_code_info, "phone_code_hash", None) or get_config("phone_code_hash") or "").strip()
+        if not target_hash:
+            raise Exception("Сначала запросите код на номер телефона (отсутствует phone_code_hash)")
+        
         target_phone = (phone or self.phone or get_config("phone") or "").strip().replace(" ", "").replace("-", "")
+        clean_code = str(code).strip().replace(" ", "").replace("-", "")
+
+        logger.info(f"Attempting sign_in with phone={target_phone}, hash={target_hash}, code_length={len(clean_code)}")
         
         async with self._auth_lock:
             if not self.app:
@@ -176,8 +180,11 @@ class TelegramManager:
 
             for attempt in range(4):
                 try:
-                    logger.info(f"Signing in with code for {target_phone}...")
-                    await self.app.sign_in(target_phone, phone_code_hash, code.strip())
+                    await self.app.sign_in(
+                        phone_number=target_phone,
+                        phone_code_hash=target_hash,
+                        phone_code=clean_code
+                    )
                     self.app.me = await self.app.get_me()
                     logger.info(f"Successfully signed in as {self.app.me.first_name} (ID: {self.app.me.id})")
                     return self.app.me

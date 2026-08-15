@@ -511,8 +511,56 @@ async def api_set_config(
     await tg_manager.init_client(force=True)
     return {"status": "success"}
 
+async def process_auth_verify(code: str, phone: Optional[str] = None, phone_code_hash: Optional[str] = None):
+    clean_code = str(code).strip().replace(" ", "").replace("-", "")
+    target_phone = (phone or tg_manager.phone or get_config("phone") or "").strip().replace(" ", "").replace("-", "")
+    target_hash = (phone_code_hash or getattr(tg_manager.sent_code_info, "phone_code_hash", None) or get_config("phone_code_hash") or "").strip()
+
+    logger.info(f"Attempting sign_in with phone={target_phone}, hash={target_hash[:8] if target_hash else 'NONE'}..., code_length={len(clean_code)}")
+    try:
+        me = await tg_manager.sign_in(phone=target_phone, code=clean_code, phone_code_hash=target_hash)
+        user_info = {
+            "id": me.id,
+            "first_name": me.first_name or "",
+            "last_name": me.last_name or "",
+            "username": me.username or "",
+            "phone": me.phone_number or ""
+        } if me else None
+        logger.info(f"User signed in successfully: {user_info}")
+        return {"status": "ok", "user": user_info, "authorized": True}
+    except SessionPasswordNeeded:
+        logger.info("SessionPasswordNeeded: 2FA required for user")
+        return {"status": "2fa_required", "password_required": True, "message": "Требуется ввод 2FA пароля"}
+    except Exception as e:
+        err_type = type(e).__name__
+        err_str = str(e)
+        if "SESSION_PASSWORD_NEEDED" in err_str or "PasswordNeeded" in err_type or isinstance(e, SessionPasswordNeeded):
+            return {"status": "2fa_required", "password_required": True, "message": "Требуется ввод 2FA пароля"}
+        
+        if "PHONE_CODE_INVALID" in err_str or err_type == "PhoneCodeInvalid":
+            raise HTTPException(status_code=400, detail="Введён неверный код подтверждения")
+        if "PHONE_CODE_EXPIRED" in err_str or err_type == "PhoneCodeExpired":
+            raise HTTPException(status_code=400, detail="Срок действия кода истёк, запросите новый")
+        
+        msg = format_tg_error(e)
+        logger.error(f"process_auth_verify error: {msg} (raw: {e})")
+        raise HTTPException(status_code=400, detail=msg)
+
 @app.post("/api/auth/send-code")
-async def api_send_code(phone: str = Form(...)):
+@app.post("/api/auth/send_code")
+async def api_send_code(request: Request):
+    phone = None
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        phone = body.get("phone")
+    else:
+        form = await request.form()
+        phone = form.get("phone")
+
+    if not phone:
+        raise HTTPException(status_code=400, detail="Номер телефона не указан")
+
     try:
         res = await tg_manager.send_code(phone.strip())
         logger.info(f"Auth code sent to phone: {phone.strip()[:6]}***")
@@ -522,32 +570,44 @@ async def api_send_code(phone: str = Form(...)):
         logger.error(f"api_send_code error: {msg} (raw: {e})")
         raise HTTPException(status_code=400, detail=msg)
 
+@app.post("/api/auth/verify_code")
 @app.post("/api/auth/sign-in")
-async def api_sign_in(code: str = Form(...), phone: Optional[str] = Form(None)):
-    try:
-        target_phone = phone or tg_manager.phone or get_config("phone")
-        me = await tg_manager.sign_in(target_phone, code.strip())
-        user_info = {
-            "id": me.id,
-            "first_name": me.first_name or "",
-            "last_name": me.last_name or "",
-            "username": me.username or "",
-            "phone": me.phone_number or ""
-        } if me else None
-        logger.info(f"User signed in successfully: {user_info}")
-        return {"status": "success", "user": user_info}
-    except SessionPasswordNeeded:
-        logger.info("SessionPasswordNeeded: 2FA required for user")
-        return {"status": "password_required"}
-    except Exception as e:
-        if "SESSION_PASSWORD_NEEDED" in str(e) or "PasswordNeeded" in str(type(e)):
-            return {"status": "password_required"}
-        msg = format_tg_error(e)
-        logger.error(f"api_sign_in error: {msg} (raw: {e})")
-        raise HTTPException(status_code=400, detail=msg)
+async def api_verify_code(request: Request):
+    phone = None
+    code = None
+    phone_code_hash = None
+
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        phone = body.get("phone")
+        code = body.get("code")
+        phone_code_hash = body.get("phone_code_hash")
+    else:
+        form = await request.form()
+        phone = form.get("phone")
+        code = form.get("code")
+        phone_code_hash = form.get("phone_code_hash")
+
+    if not code:
+        raise HTTPException(status_code=400, detail="Код подтверждения не передан")
+
+    return await process_auth_verify(code=code, phone=phone, phone_code_hash=phone_code_hash)
 
 @app.post("/api/auth/password")
-async def api_check_password(password: str = Form(...)):
+async def api_check_password(request: Request):
+    password = None
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        password = body.get("password")
+    else:
+        form = await request.form()
+        password = form.get("password")
+
+    if not password:
+        raise HTTPException(status_code=400, detail="Пароль не указан")
+
     try:
         me = await tg_manager.check_password(password)
         user_info = {
@@ -558,7 +618,7 @@ async def api_check_password(password: str = Form(...)):
             "phone": me.phone_number or ""
         } if me else None
         logger.info(f"2FA Password accepted for user: {user_info}")
-        return {"status": "success", "user": user_info}
+        return {"status": "ok", "user": user_info, "authorized": True}
     except Exception as e:
         msg = format_tg_error(e)
         logger.error(f"api_check_password error: {msg} (raw: {e})")
