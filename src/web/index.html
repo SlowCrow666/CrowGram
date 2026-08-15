@@ -282,11 +282,12 @@
                 </div>
             </div>
 
-            <!-- ШАГ 4: СОЗДАНИЕ ДИСКА -->
+            <!-- ШАГ 4: СОЗДАНИЕ ДИСКА / ВОССТАНОВЛЕНИЕ -->
             <div class="wizard-content" id="wizardStepBody4" style="display: none;">
                 <h3 class="wizard-step-title" data-i18n="wizard.step4_title">Создание первого облачного диска</h3>
                 <p class="wizard-step-desc" data-i18n="wizard.step4_desc">Файлы будут автоматически шифроваться, нарезаться на чанки и безопасно сохраняться в Telegram.</p>
                 
+                <!-- Вариант А: Создание нового диска -->
                 <div class="form-group">
                     <label data-i18n="driveModal.driveLetterLabel">БУКВА ДИСКА:</label>
                     <input type="text" id="wizardDriveLetter" class="hud-input" value="C" maxlength="2" style="max-width: 70px; text-transform: uppercase;">
@@ -302,11 +303,36 @@
                     </select>
                 </div>
 
-                <div id="wizardStep4Msg" class="wizard-msg"></div>
+                <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                    <button type="button" class="hud-btn primary" id="wizardCreateDriveBtn" style="font-size: 11px; padding: 7px 16px;" data-i18n="driveModal.saveBtn">СОЗДАТЬ ДИСК ➔</button>
+                </div>
+
+                <!-- Разделитель ИЛИ -->
+                <div style="display: flex; align-items: center; text-align: center; margin: 16px 0 12px 0; color: var(--text-muted); font-size: 11px; font-weight: 600;">
+                    <span style="flex: 1; border-bottom: 1px dashed var(--border-subtle);"></span>
+                    <span style="padding: 0 12px; letter-spacing: 1px;" data-i18n="wizard.orDivider">— ИЛИ —</span>
+                    <span style="flex: 1; border-bottom: 1px dashed var(--border-subtle);"></span>
+                </div>
+
+                <!-- Вариант Б: Восстановление существующей базы -->
+                <div style="background: rgba(255,255,255,0.03); border: 1px dashed var(--border-hover); border-radius: var(--radius-control); padding: 14px;">
+                    <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px;" data-i18n="wizard.step4_restore_title">У вас уже есть облако CrowGram?</div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;" data-i18n="wizard.step4_restore_desc">Восстановите все ваши диски, папки и файлы в 1 клик без создания пустого диска.</div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button type="button" class="hud-btn primary" id="wizardStep4PullBtn" style="flex: 1; font-size: 11px; padding: 8px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="wizard.step4_restore_tg">
+                            📥 Восстановить из Telegram (Pull)
+                        </button>
+                        <button type="button" class="hud-btn" id="wizardStep4FileBtn" style="flex: 1; font-size: 11px; padding: 8px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="wizard.step4_restore_file">
+                            📁 Загрузить бэкап из файла (.json)
+                        </button>
+                        <input type="file" id="wizardStep4FileInput" accept=".json" style="display: none;">
+                    </div>
+                </div>
+
+                <div id="wizardStep4Msg" class="wizard-msg" style="margin-top: 10px;"></div>
 
                 <div style="display: flex; justify-content: space-between; margin-top: 18px;">
                     <button type="button" class="hud-btn" data-wizard-prev data-i18n="common.back">⬅ Назад</button>
-                    <button type="button" class="hud-btn primary" id="wizardCreateDriveBtn" data-i18n="driveModal.saveBtn">СОЗДАТЬ ДИСК ➔</button>
                 </div>
             </div>
 

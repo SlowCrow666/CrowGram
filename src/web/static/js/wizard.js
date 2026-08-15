@@ -240,6 +240,74 @@
                 };
             }
 
+            // Step 4: Quick Restore from Telegram
+            const step4PullBtn = document.getElementById('wizardStep4PullBtn');
+            if (step4PullBtn) {
+                step4PullBtn.onclick = async () => {
+                    step4PullBtn.disabled = true;
+                    step4PullBtn.textContent = '⏳ ...';
+                    this.showMsg('wizardStep4Msg', '⏳ Загрузка базы из Избранного Telegram...', 'info');
+                    try {
+                        const res = await fetch('/api/sync/pull', { method: 'POST' });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.showMsg('wizardStep4Msg', '✓ ' + (data.message || 'База данных успешно восстановлена!'), 'success');
+                            if (window.loadDrives) await window.loadDrives();
+                            if (window.loadFiles) await window.loadFiles();
+                            if (window.CrowAPI && typeof window.CrowAPI.reloadFiles === 'function') {
+                                await window.CrowAPI.reloadFiles();
+                            }
+                            setTimeout(() => this.finish(), 800);
+                        } else {
+                            this.showMsg('wizardStep4Msg', data.detail || data.message || 'Файл синхронизации не найден в Telegram', 'error');
+                        }
+                    } catch (e) {
+                        this.showMsg('wizardStep4Msg', e.message, 'error');
+                    } finally {
+                        step4PullBtn.disabled = false;
+                        step4PullBtn.textContent = window.t('wizard.step4_restore_tg') || '📥 Восстановить из Telegram (Pull)';
+                    }
+                };
+            }
+
+            // Step 4: Import Database from File (.json)
+            const step4FileBtn = document.getElementById('wizardStep4FileBtn');
+            const step4FileInput = document.getElementById('wizardStep4FileInput');
+            if (step4FileBtn && step4FileInput) {
+                step4FileBtn.onclick = () => step4FileInput.click();
+                step4FileInput.onchange = async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+
+                    step4FileBtn.disabled = true;
+                    step4FileBtn.textContent = '⏳ ...';
+                    this.showMsg('wizardStep4Msg', '⏳ Восстановление базы из файла...', 'info');
+                    try {
+                        const fd = new FormData();
+                        fd.append('file', file);
+                        const res = await fetch('/api/backup/import', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.showMsg('wizardStep4Msg', '✓ ' + (data.message || 'База успешно восстановлена!'), 'success');
+                            if (window.loadDrives) await window.loadDrives();
+                            if (window.loadFiles) await window.loadFiles();
+                            if (window.CrowAPI && typeof window.CrowAPI.reloadFiles === 'function') {
+                                await window.CrowAPI.reloadFiles();
+                            }
+                            setTimeout(() => this.finish(), 800);
+                        } else {
+                            this.showMsg('wizardStep4Msg', data.detail || 'Не удалось импортировать файл', 'error');
+                        }
+                    } catch (err) {
+                        this.showMsg('wizardStep4Msg', err.message, 'error');
+                    } finally {
+                        step4FileBtn.disabled = false;
+                        step4FileBtn.textContent = window.t('wizard.step4_restore_file') || '📁 Загрузить бэкап из файла (.json)';
+                        step4FileInput.value = '';
+                    }
+                };
+            }
+
             // Step 5: Quick Restore from Telegram
             const pullSyncBtn = document.getElementById('wizardPullSyncBtn');
             if (pullSyncBtn) {
