@@ -366,15 +366,39 @@ class TelegramManager:
             return msg.id
 
     async def download_chunk_stream(self, message_id, chat_id=None):
+        if not self.is_authorized():
+            return
+
+        if not self.app or not getattr(self.app, "is_connected", False):
+            try:
+                await self.init_client()
+            except Exception as e:
+                logger.warning(f"Telegram client reconnection before stream failed: {e}")
+                return
+
         if chat_id is None:
             from src.core.db import get_config
             chat_id = get_config("target_chat")
             
         chat_entity = await self._resolve_chat(chat_id)
-        msg = await self.app.get_messages(chat_entity.id, message_id)
-        if not msg or not msg.document: return
-        async for chunk in self.app.stream_media(msg.document):
-            yield chunk
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if not getattr(self.app, "is_connected", False):
+                    await self.init_client()
+                msg = await self.app.get_messages(chat_entity.id, message_id)
+                if not msg or not msg.document:
+                    return
+                async for chunk in self.app.stream_media(msg.document):
+                    yield chunk
+                return
+            except Exception as e:
+                logger.warning(f"download_chunk_stream attempt {attempt + 1}/{max_retries} failed: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.4)
+                else:
+                    raise
 
     async def delete_messages(self, msg_ids, chat_id=None):
         if chat_id is None:

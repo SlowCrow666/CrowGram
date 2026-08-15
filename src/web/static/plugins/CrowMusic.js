@@ -911,6 +911,529 @@
             background: #1e2433;
             color: #38bdf8;
         }
+
+        /* Now Playing Fullscreen Overlay */
+        .cm-nowplaying-modal {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 10040 !important;
+            background: #080a0f !important;
+            display: none;
+            flex-direction: column !important;
+            overflow: hidden !important;
+            color: #f3f4f6;
+            font-family: 'Inter', system-ui, sans-serif;
+            user-select: none;
+        }
+        .cm-nowplaying-modal.active, .cm-nowplaying-modal.open {
+            display: flex !important;
+        }
+        .cm-nowplaying-backdrop {
+            position: absolute;
+            inset: -40px;
+            background-size: cover;
+            background-position: center;
+            filter: blur(70px) brightness(0.35);
+            transform: scale(1.15);
+            pointer-events: none;
+            transition: background-image 0.8s ease-in-out;
+            z-index: 1;
+        }
+        .cm-nowplaying-header {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 28px;
+            background: linear-gradient(180deg, rgba(8,10,15,0.85) 0%, transparent 100%);
+        }
+        .cm-np-icon-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #f3f4f6;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s ease;
+        }
+        .cm-np-icon-btn:hover {
+            background: rgba(0, 240, 255, 0.2);
+            border-color: #00f0ff;
+            color: #00f0ff;
+            box-shadow: 0 0 14px rgba(0, 240, 255, 0.4);
+            transform: scale(1.08);
+        }
+        .cm-np-icon-btn.active {
+            background: #0088cc;
+            border-color: #38bdf8;
+            color: #ffffff;
+            box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);
+        }
+        .cm-np-vis-modes {
+            display: flex;
+            gap: 6px;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(10px);
+            padding: 4px;
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .cm-np-mode-btn {
+            padding: 6px 14px;
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 18px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .cm-np-mode-btn:hover {
+            color: #ffffff;
+        }
+        .cm-np-mode-btn.active {
+            background: linear-gradient(135deg, #0088cc, #00f0ff);
+            color: #080a0f;
+            font-weight: 700;
+            box-shadow: 0 0 14px rgba(0, 240, 255, 0.45);
+        }
+        .cm-np-top-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .cm-nowplaying-body {
+            position: relative;
+            z-index: 10;
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            padding: 10px 32px 20px;
+            gap: 32px;
+            box-sizing: border-box;
+        }
+        .cm-np-left-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            min-width: 320px;
+        }
+        .cm-np-visualizer-wrap {
+            position: relative;
+            width: 100%;
+            max-width: 520px;
+            aspect-ratio: 1 / 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .cm-nowplaying-canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+        }
+        .cm-np-cover-wrap {
+            position: relative;
+            width: 240px;
+            height: 240px;
+            border-radius: 20px;
+            overflow: hidden;
+            z-index: 3;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 35px rgba(0, 240, 255, 0.2);
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .cm-np-cover-wrap.spinning {
+            border-radius: 50%;
+            box-shadow: 0 0 45px rgba(0, 240, 255, 0.4);
+            animation: cmCoverSpin 20s linear infinite;
+        }
+        @keyframes cmCoverSpin {
+            100% { transform: rotate(360deg); }
+        }
+        .cm-np-cover-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .cm-np-meta {
+            margin-top: 24px;
+            text-align: center;
+            z-index: 3;
+            max-width: 480px;
+        }
+        .cm-np-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #ffffff;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .cm-np-artist {
+            font-size: 15px;
+            font-weight: 600;
+            color: #38bdf8;
+            margin-top: 6px;
+            text-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+        }
+        .cm-np-album {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+
+        /* Lyrics / Karaoke Pane */
+        .cm-np-lyrics-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+            transition: all 0.3s ease;
+        }
+        .cm-np-lyrics-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 13px;
+            font-weight: 600;
+            color: #cbd5e1;
+        }
+        .cm-lyrics-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 40px 24px;
+            box-sizing: border-box;
+            scroll-behavior: smooth;
+            mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+        }
+        .cm-lyrics-container::-webkit-scrollbar {
+            width: 4px;
+        }
+        .cm-lyrics-container::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.2);
+            border-radius: 4px;
+        }
+        .cm-lyrics-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding: 60px 0;
+        }
+        .cm-lyrics-line {
+            padding: 10px 18px;
+            font-size: 16px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.38);
+            text-align: center;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.25s cubic-bezier(0.2, 0, 0, 1);
+            line-height: 1.5;
+        }
+        .cm-lyrics-line:hover {
+            color: rgba(255, 255, 255, 0.85);
+            background: rgba(255, 255, 255, 0.06);
+            transform: scale(1.02);
+        }
+        .cm-lyrics-line.cm-lyrics-active {
+            font-size: 22px;
+            font-weight: 700;
+            color: #00f0ff;
+            text-shadow: 0 0 20px rgba(0, 240, 255, 0.7), 0 0 40px rgba(0, 136, 204, 0.5);
+            transform: scale(1.06);
+            background: rgba(0, 240, 255, 0.08);
+        }
+        .cm-lyrics-empty {
+            text-align: center;
+            color: #64748b;
+            font-size: 14px;
+            padding: 40px 20px;
+        }
+
+        /* Now Playing Footer Player */
+        .cm-np-footer {
+            position: relative;
+            z-index: 10;
+            background: linear-gradient(0deg, rgba(8,10,15,0.95) 0%, transparent 100%);
+            padding: 12px 32px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .cm-np-progress-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 12px;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+        .cm-np-controls-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        /* Top-Level High Z-Index Modal Overlays (Mounted directly to document.body) */
+        .cm-modal-overlay {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            background: rgba(10, 14, 20, 0.94) !important;
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            z-index: 10050 !important;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        .cm-modal-overlay.active, .cm-modal-overlay.open {
+            display: flex !important;
+        }
+
+        .cm-lyrics-modal-panel {
+            background: #0f131d;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 20px;
+            width: 95vw;
+            max-width: 680px;
+            height: 82vh;
+            max-height: 720px;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.95), 0 0 35px rgba(0, 136, 204, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            z-index: 10055;
+        }
+        .cm-lyrics-modal-header {
+            padding: 16px 24px;
+            background: #131826;
+            border-bottom: 1px solid #1e2538;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* 10-Band Equalizer Modal */
+        .cm-eq-modal {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 10050 !important;
+            background: rgba(5, 7, 12, 0.92) !important;
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        .cm-eq-modal.active, .cm-eq-modal.open {
+            display: flex !important;
+        }
+        .cm-eq-panel {
+            background: #0f131d;
+            border: 1px solid #0088cc;
+            border-radius: 16px;
+            width: 95vw;
+            max-width: 820px;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.9), 0 0 30px rgba(0, 136, 204, 0.25);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            z-index: 10055;
+        }
+        .cm-eq-header {
+            padding: 14px 22px;
+            background: #131826;
+            border-bottom: 1px solid #1e2538;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .cm-eq-switch-label {
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .cm-eq-switch-label input {
+            display: none;
+        }
+        .cm-eq-switch-slider {
+            width: 36px;
+            height: 20px;
+            background: #334155;
+            border-radius: 20px;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+        .cm-eq-switch-slider::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: #ffffff;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+        .cm-eq-switch-label input:checked + .cm-eq-switch-slider {
+            background: #0088cc;
+            box-shadow: 0 0 10px rgba(0, 136, 204, 0.5);
+        }
+        .cm-eq-switch-label input:checked + .cm-eq-switch-slider::before {
+            transform: translateX(16px);
+        }
+        .cm-eq-presets-bar {
+            padding: 12px 22px;
+            background: #101522;
+            border-bottom: 1px solid #1a2030;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .cm-eq-preset-pills {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .cm-eq-pill {
+            padding: 4px 10px;
+            background: #1a2233;
+            border: 1px solid #27344d;
+            border-radius: 14px;
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .cm-eq-pill:hover {
+            color: #ffffff;
+            border-color: #38bdf8;
+        }
+        .cm-eq-pill.active {
+            background: #0088cc;
+            border-color: #38bdf8;
+            color: #ffffff;
+            box-shadow: 0 0 10px rgba(0, 136, 204, 0.4);
+        }
+        .cm-eq-sliders-box {
+            padding: 24px 22px;
+            background: #0c1019;
+            display: flex;
+            justify-content: center;
+        }
+        .cm-eq-grid {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            gap: 12px;
+        }
+        .cm-eq-col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        .cm-eq-db-badge {
+            font-size: 11px;
+            font-weight: 700;
+            color: #38bdf8;
+            min-width: 32px;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+        }
+        .cm-eq-slider-wrapper {
+            height: 160px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .cm-eq-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 140px;
+            height: 6px;
+            background: #1e293b;
+            border-radius: 4px;
+            outline: none;
+            transform: rotate(-90deg);
+            cursor: pointer;
+        }
+        .cm-eq-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #00f0ff;
+            box-shadow: 0 0 10px #00f0ff;
+            cursor: pointer;
+            transition: transform 0.15s ease;
+        }
+        .cm-eq-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.25);
+        }
+        .cm-eq-freq-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+        .cm-eq-footer {
+            padding: 12px 22px;
+            background: #131826;
+            border-top: 1px solid #1e2538;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
     `;
 
     class CrowMusicEngine {
@@ -936,6 +1459,41 @@
             this.activeAlbumId = null;
             this.activeGenreName = null;
             this.toastTimeout = null;
+
+            // Web Audio Graph & 10-Band EQ
+            this.audioCtx = null;
+            this.audioSourceNode = null;
+            this.analyser = null;
+            this.eqFilters = [];
+            this.gainNode = null;
+            this.eqEnabled = localStorage.getItem('crowmusic_eq_enabled') !== 'false';
+            this.eqPreset = localStorage.getItem('crowmusic_eq_preset') || 'Flat';
+            this.eqFrequencies = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+            this.eqGains = JSON.parse(localStorage.getItem('crowmusic_eq_gains') || '[0,0,0,0,0,0,0,0,0,0]');
+            this.eqPresets = {
+                'Flat': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                'Rock': [4.5, 3.0, 1.5, 0, -1.5, -1.0, 1.0, 3.0, 4.0, 4.5],
+                'Punk': [4.0, 3.5, 2.0, 1.0, 0, 1.5, 3.0, 4.5, 5.0, 4.5],
+                'Metal': [5.0, 4.0, 2.0, 0, -2.0, -1.0, 2.0, 4.5, 5.0, 5.5],
+                'Bass Boost': [7.0, 6.0, 4.5, 2.5, 1.0, 0, 0, 0, 0, 0],
+                'Electronic': [5.5, 4.5, 1.0, 0, -2.0, 2.0, 1.0, 3.0, 4.5, 5.0],
+                'Vocal': [-2.0, -2.0, 0, 2.5, 4.5, 4.0, 2.5, 1.0, -1.0, -2.0],
+                'Acoustic': [3.5, 2.5, 1.5, 1.0, 2.0, 2.0, 3.0, 3.5, 3.0, 2.0]
+            };
+            this.crossfadeSec = parseInt(localStorage.getItem('crowmusic_crossfade') || '0', 10);
+            this.isFadingOut = false;
+
+            // Visualizer & Now Playing
+            this.nowPlayingOpen = false;
+            this.visualizerMode = localStorage.getItem('crowmusic_vis_mode') || 'bars'; // 'bars', 'radial', 'waveform'
+            this.animFrameId = null;
+            this.peakBars = new Array(64).fill(0);
+
+            // Lyrics & Karaoke
+            this.lyricsOpen = true;
+            this.currentLyricsTrackId = null;
+            this.parsedLyrics = [];
+            this.currentLyricIdx = -1;
         }
 
         init(api) {
@@ -958,12 +1516,20 @@
             window.addEventListener('keydown', (e) => {
                 if (this.isModalOpen) {
                     if (e.key === 'Escape') {
-                        if (document.getElementById('cmTagModalOverlay')) {
+                        if (document.getElementById('cmCustomLyricsModal')) {
+                            this.closeCustomLyricsModal();
+                        } else if (this.lyricsModalOpen || document.getElementById('cmLyricsModal')?.classList.contains('active')) {
+                            this.closeLyricsModal();
+                        } else if (this.eqModalOpen || document.getElementById('cmEqualizerModal')?.classList.contains('active')) {
+                            this.closeEqualizer();
+                        } else if (this.nowPlayingOpen || document.getElementById('cmNowPlayingModal')?.classList.contains('active')) {
+                            this.closeNowPlaying();
+                        } else if (document.getElementById('cmTagModalOverlay')) {
                             this.closeTagEditorModal();
                         } else {
                             this.close();
                         }
-                    } else if (e.code === 'Space' && e.target.tagName !== 'INPUT' && !document.getElementById('cmTagModalOverlay')) {
+                    } else if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && !document.getElementById('cmTagModalOverlay') && !document.getElementById('cmCustomLyricsModal')) {
                         e.preventDefault();
                         this.togglePlayPause();
                     }
@@ -974,6 +1540,20 @@
                 const ctx = document.getElementById('cmContextMenu');
                 if (ctx) ctx.style.display = 'none';
             });
+
+            // Instant Stale-While-Revalidate: pre-fetch cached library immediately on startup
+            this.fetchLibrary();
+        }
+
+        async backgroundSync() {
+            try {
+                const res = await fetch('/api/plugins/crow-music/scan', { method: 'POST' });
+                if (res.ok) {
+                    await this.fetchLibrary();
+                }
+            } catch (e) {
+                console.debug('Background sync error:', e);
+            }
         }
 
         injectStyles() {
@@ -1007,11 +1587,173 @@
                                 <div id="musicContainerHolder" style="flex:1; width:100%; height:calc(100% - 48px); display:flex; flex-direction:column; overflow:hidden; background:#0f1117; position:relative;"></div>
                             </div>
                         </div>
-                        <div id="cmContextMenu" class="cm-context-menu"></div>
                     `;
                     document.body.insertAdjacentHTML('beforeend', modalHtml);
                     container = document.getElementById('musicContainerHolder');
                 }
+            }
+
+            // Top-Level Context Menu
+            if (!document.getElementById('cmContextMenu')) {
+                document.body.insertAdjacentHTML('beforeend', `<div id="cmContextMenu" class="cm-context-menu"></div>`);
+            }
+
+            // Top-Level Dedicated Lyrics Overlay Modal
+            if (!document.getElementById('cmLyricsModal')) {
+                const lyricsModalHtml = `
+                    <div id="cmLyricsModal" class="cm-modal-overlay">
+                        <div class="cm-lyrics-modal-panel">
+                            <div class="cm-lyrics-modal-header">
+                                <div style="display:flex; align-items:center; gap:12px;">
+                                    <span style="font-size:22px;">💬</span>
+                                    <div>
+                                        <div id="cmLyricsModalTitle" style="font-size:16px; font-weight:700; color:#f3f4f6;">Текст песни</div>
+                                        <div id="cmLyricsModalArtist" style="font-size:13px; color:#38bdf8;">Исполнитель</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:10px;">
+                                    <span id="cmLyricsModalBadge" class="crow-music-badge">LRCLIB</span>
+                                    <button id="cmLyricsModalEditBtn" class="crow-music-btn-secondary" style="padding:5px 12px; font-size:11px; cursor:pointer;" title="Вставить свой текст песни">✏️ Свой текст</button>
+                                    <button id="cmLyricsModalCloseBtn" class="close-btn" style="font-size:24px; line-height:1; padding:2px 8px; z-index:10060; cursor:pointer;">&times;</button>
+                                </div>
+                            </div>
+                            <div id="cmLyricsModalScroll" class="cm-lyrics-container" style="flex:1; overflow-y:auto; padding:40px 24px;">
+                                <div id="cmLyricsModalContent" class="cm-lyrics-list">
+                                    <div class="cm-lyrics-empty">Загрузка текста песни... ⏳</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', lyricsModalHtml);
+            }
+
+            // Top-Level Equalizer Modal
+            if (!document.getElementById('cmEqualizerModal')) {
+                const eqModalHtml = `
+                    <div id="cmEqualizerModal" class="cm-eq-modal">
+                        <div class="cm-eq-panel">
+                            <div class="cm-eq-header">
+                                <div style="display:flex; align-items:center; gap:10px;">
+                                    <span style="font-size:18px;">🎚️</span>
+                                    <span style="font-size:15px; font-weight:700; color:#f3f4f6;">10-Полосный Эквалайзер</span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:12px;">
+                                    <label class="cm-eq-switch-label">
+                                        <input type="checkbox" id="cmEqEnableToggle" checked />
+                                        <span class="cm-eq-switch-slider"></span>
+                                        <span id="cmEqToggleText" style="font-size:12px; font-weight:600; color:#38bdf8; margin-left:6px;">ВКЛ</span>
+                                    </label>
+                                    <button id="cmEqCloseBtn" class="close-btn" style="font-size:24px; line-height:1; padding:2px 8px; z-index:10060; cursor:pointer;">&times;</button>
+                                </div>
+                            </div>
+
+                            <div class="cm-eq-presets-bar">
+                                <span style="font-size:12px; color:#94a3b8; font-weight:600;">Пресеты:</span>
+                                <div class="cm-eq-preset-pills">
+                                    <button class="cm-eq-pill active" data-preset="Flat">Flat</button>
+                                    <button class="cm-eq-pill" data-preset="Rock">Рок</button>
+                                    <button class="cm-eq-pill" data-preset="Punk">Панк</button>
+                                    <button class="cm-eq-pill" data-preset="Metal">Метал</button>
+                                    <button class="cm-eq-pill" data-preset="Bass Boost">Bass Boost</button>
+                                    <button class="cm-eq-pill" data-preset="Electronic">Electronic</button>
+                                    <button class="cm-eq-pill" data-preset="Vocal">Vocal</button>
+                                    <button class="cm-eq-pill" data-preset="Acoustic">Acoustic</button>
+                                </div>
+                                <button id="cmEqResetBtn" class="crow-music-btn-secondary" style="padding:4px 10px; font-size:11px; margin-left:auto; cursor:pointer;">Сброс</button>
+                            </div>
+
+                            <div class="cm-eq-sliders-box">
+                                <div class="cm-eq-grid" id="cmEqSlidersGrid"></div>
+                            </div>
+
+                            <div class="cm-eq-footer">
+                                <div style="display:flex; align-items:center; gap:12px;">
+                                    <span style="font-size:12px; color:#cbd5e1; font-weight:600;">🎛️ Плавное сведение (Crossfade):</span>
+                                    <select id="cmCrossfadeSelect" class="crow-music-input" style="width:auto; padding:4px 10px; font-size:12px; border-radius:8px;">
+                                        <option value="0">Выкл (0 сек)</option>
+                                        <option value="1">1 секунда</option>
+                                        <option value="2">2 секунды</option>
+                                        <option value="3">3 секунды</option>
+                                        <option value="4">4 секунды</option>
+                                        <option value="5">5 секунд</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', eqModalHtml);
+            }
+
+            // Top-Level Now Playing Fullscreen Overlay Modal
+            if (!document.getElementById('cmNowPlayingModal')) {
+                const npModalHtml = `
+                    <div id="cmNowPlayingModal" class="cm-nowplaying-modal">
+                        <div id="cmNpBackdrop" class="cm-nowplaying-backdrop"></div>
+                        <div class="cm-nowplaying-header">
+                            <button id="cmNpCloseBtn" class="cm-np-icon-btn" title="Свернуть (Esc)" style="z-index:10060; cursor:pointer;">✕</button>
+                            <div class="cm-np-vis-modes">
+                                <button class="cm-np-mode-btn active" data-mode="bars">📊 Неон</button>
+                                <button class="cm-np-mode-btn" data-mode="radial">⭕ Радиальный</button>
+                                <button class="cm-np-mode-btn" data-mode="waveform">〰️ Волна</button>
+                            </div>
+                            <div class="cm-np-top-actions">
+                                <button id="cmNpLyricsToggle" class="cm-np-icon-btn active" title="Текст песни (Lyrics)">💬</button>
+                                <button id="cmNpEqToggle" class="cm-np-icon-btn" title="Эквалайзер">🎚️</button>
+                            </div>
+                        </div>
+                        
+                        <div class="cm-nowplaying-body">
+                            <div class="cm-np-left-pane">
+                                <div class="cm-np-visualizer-wrap">
+                                    <canvas id="cmVisualizerCanvas" class="cm-nowplaying-canvas"></canvas>
+                                    <div id="cmNpCoverContainer" class="cm-np-cover-wrap">
+                                        <img id="cmNpCoverImg" class="cm-np-cover-img" src="" alt="" />
+                                    </div>
+                                </div>
+                                <div class="cm-np-meta">
+                                    <div id="cmNpTitle" class="cm-np-title">Выберите трек</div>
+                                    <div id="cmNpArtist" class="cm-np-artist">CrowMusic Player</div>
+                                    <div id="cmNpAlbum" class="cm-np-album"></div>
+                                </div>
+                            </div>
+
+                            <div id="cmNpLyricsPane" class="cm-np-lyrics-pane">
+                                <div class="cm-np-lyrics-header">
+                                    <span>💬 Текст песни / Караоке</span>
+                                    <span id="cmNpLyricsSourceBadge" class="crow-music-badge">LRCLIB</span>
+                                </div>
+                                <div id="cmNpLyricsScroll" class="cm-lyrics-container">
+                                    <div id="cmNpLyricsList" class="cm-lyrics-list">
+                                        <div class="cm-lyrics-empty">Выберите трек для отображения текста...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Now Playing Bottom Player Bar -->
+                        <div class="cm-np-footer">
+                            <div class="cm-np-progress-bar-row">
+                                <span id="cmNpCurTime">0:00</span>
+                                <input type="range" id="cmNpSeekBar" class="crow-music-seek-slider" min="0" max="100" value="0" step="0.1" />
+                                <span id="cmNpTotTime">0:00</span>
+                            </div>
+                            <div class="cm-np-controls-row">
+                                <button id="cmNpShuffleBtn" class="crow-music-ctl-btn" title="Вперемешку">🔀</button>
+                                <button id="cmNpPrevBtn" class="crow-music-ctl-btn" title="Предыдущий">⏮</button>
+                                <button id="cmNpPlayBtn" class="crow-music-ctl-btn crow-music-play-main" title="Воспроизведение / Пауза">▶</button>
+                                <button id="cmNpNextBtn" class="crow-music-ctl-btn" title="Следующий">⏭</button>
+                                <button id="cmNpRepeatBtn" class="crow-music-ctl-btn" title="Повтор">🔁</button>
+                                <div style="display:flex; align-items:center; gap:8px; margin-left: 20px;">
+                                    <button id="cmNpVolBtn" class="crow-music-ctl-btn">🔊</button>
+                                    <input type="range" id="cmNpVolSlider" class="crow-music-vol-slider" min="0" max="100" value="85" style="width:90px;" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', npModalHtml);
             }
 
             document.getElementById('closeMusicBtn')?.addEventListener('click', () => this.close());
@@ -1198,6 +1940,9 @@
                         </div>
 
                         <div class="crow-music-player-right">
+                            <button id="cmEqualizerBtn" class="crow-music-ctl-btn" title="10-Полосный Эквалайзер (EQ)">🎚️</button>
+                            <button id="cmLyricsBtn" class="crow-music-ctl-btn" title="Текст песни / Караоке (Lyrics)">💬</button>
+                            <button id="cmNowPlayingBtn" class="crow-music-ctl-btn" title="Режим Now Playing / Визуализатор (Full View)">⛶</button>
                             <button id="cmVolumeBtn" class="crow-music-ctl-btn" title="Mute (M)">🔊</button>
                             <input type="range" id="cmVolumeSlider" class="crow-music-vol-slider" min="0" max="100" value="85" />
                         </div>
@@ -1280,6 +2025,127 @@
                 const fids = Array.from(this.selectedTrackIds);
                 if (!fids.length) return;
                 await this.autofixTracks(fids);
+            });
+
+            // New Module Controls: Now Playing, Lyrics, EQ
+            document.getElementById('cmNowPlayingBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleNowPlaying();
+            });
+            document.getElementById('cmLyricsBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleLyricsModal();
+            });
+            document.getElementById('cmEqualizerBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleEqualizer();
+            });
+
+            // Dedicated Lyrics Overlay Modal Event Handlers
+            document.getElementById('cmLyricsModalCloseBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.closeLyricsModal();
+            });
+            document.getElementById('cmLyricsModalEditBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.openCustomLyricsModal();
+            });
+            document.getElementById('cmLyricsModal')?.addEventListener('mousedown', (e) => {
+                if (e.target.id === 'cmLyricsModal') this.closeLyricsModal();
+            });
+
+            // Now Playing Overlay Event Handlers
+            document.getElementById('cmNpCloseBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.closeNowPlaying();
+            });
+            document.getElementById('cmNpLyricsToggle')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleLyricsPane();
+            });
+            document.getElementById('cmNpEqToggle')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleEqualizer();
+            });
+            document.getElementById('cmNpPlayBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.togglePlayPause();
+            });
+            document.getElementById('cmNpPrevBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.playPrev();
+            });
+            document.getElementById('cmNpNextBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.playNext();
+            });
+            document.getElementById('cmNpShuffleBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleShuffle();
+            });
+            document.getElementById('cmNpRepeatBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleRepeat();
+            });
+            document.getElementById('cmNpVolBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleMute();
+            });
+
+            const npVolSlider = document.getElementById('cmNpVolSlider');
+            if (npVolSlider) {
+                npVolSlider.addEventListener('input', (e) => {
+                    const v = parseFloat(e.target.value) / 100;
+                    this.audio.volume = v;
+                    const mainVol = document.getElementById('cmVolumeSlider');
+                    if (mainVol) mainVol.value = e.target.value;
+                });
+            }
+
+            const npSeekBar = document.getElementById('cmNpSeekBar');
+            if (npSeekBar) {
+                npSeekBar.addEventListener('input', (e) => {
+                    if (this.audio.duration) {
+                        this.audio.currentTime = (parseFloat(e.target.value) / 100) * this.audio.duration;
+                    }
+                });
+            }
+
+            document.querySelectorAll('.cm-np-mode-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const mode = btn.dataset.mode;
+                    if (mode) this.setVisualizerMode(mode);
+                });
+            });
+
+            // Equalizer Modal Event Handlers
+            document.getElementById('cmEqCloseBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.closeEqualizer();
+            });
+            document.getElementById('cmEqualizerModal')?.addEventListener('mousedown', (e) => {
+                if (e.target.id === 'cmEqualizerModal') this.closeEqualizer();
+            });
+            document.getElementById('cmEqResetBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.resetEq();
+            });
+            document.getElementById('cmEqEnableToggle')?.addEventListener('change', (e) => {
+                this.toggleEqBypass(e.target.checked);
+            });
+            document.getElementById('cmCrossfadeSelect')?.addEventListener('change', (e) => {
+                this.setCrossfadeSec(parseInt(e.target.value, 10));
+            });
+            document.querySelectorAll('.cm-eq-pill').forEach(pill => {
+                pill.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const preset = pill.dataset.preset;
+                    if (preset) this.setEqPreset(preset);
+                });
+            });
+            document.getElementById('cmEqualizerModal')?.addEventListener('mousedown', (e) => {
+                if (e.target.id === 'cmEqualizerModal') this.closeEqualizer();
             });
         }
 
@@ -2349,27 +3215,168 @@
             this.renderCurrentView();
         }
 
+        initAudioGraph() {
+            if (this.audioCtx) {
+                if (this.audioCtx.state === 'suspended') {
+                    this.audioCtx.resume().catch(() => {});
+                }
+                return;
+            }
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                this.audioCtx = new AudioCtx();
+                this.audioSourceNode = this.audioCtx.createMediaElementSource(this.audio);
+                
+                this.analyser = this.audioCtx.createAnalyser();
+                this.analyser.fftSize = 256;
+                this.analyser.smoothingTimeConstant = 0.82;
+
+                // 10-band Equalizer Filters (32Hz to 16kHz)
+                this.eqFilters = this.eqFrequencies.map((freq, idx) => {
+                    const filter = this.audioCtx.createBiquadFilter();
+                    if (idx === 0) {
+                        filter.type = 'lowshelf';
+                    } else if (idx === this.eqFrequencies.length - 1) {
+                        filter.type = 'highshelf';
+                    } else {
+                        filter.type = 'peaking';
+                        filter.Q.value = 1.4;
+                    }
+                    filter.frequency.value = freq;
+                    const savedGain = this.eqGains[idx] || 0;
+                    filter.gain.value = this.eqEnabled ? savedGain : 0;
+                    return filter;
+                });
+
+                this.gainNode = this.audioCtx.createGain();
+                this.gainNode.gain.value = this.audio.muted ? 0 : (this.audio.volume ?? 0.85);
+
+                // Connect Chain: Source -> Analyser -> Filter[0] -> ... -> Filter[9] -> GainNode -> Destination
+                let prevNode = this.audioSourceNode;
+                prevNode.connect(this.analyser);
+                prevNode = this.analyser;
+
+                for (let i = 0; i < this.eqFilters.length; i++) {
+                    prevNode.connect(this.eqFilters[i]);
+                    prevNode = this.eqFilters[i];
+                }
+
+                prevNode.connect(this.gainNode);
+                this.gainNode.connect(this.audioCtx.destination);
+            } catch (e) {
+                console.warn('Web Audio Graph initialization notice:', e);
+            }
+        }
+
         initAudioEngine() {
             this.audio.addEventListener('timeupdate', () => {
                 if (this.audio.duration) {
                     const cur = this.audio.currentTime;
                     const dur = this.audio.duration;
                     const pct = (cur / dur) * 100;
+
+                    // Update main player bar
                     const seekBar = document.getElementById('cmSeekBar');
                     if (seekBar) seekBar.value = pct;
                     const curTime = document.getElementById('cmCurrentTime');
                     if (curTime) curTime.textContent = this.formatTime(cur);
+
+                    // Update Now Playing overlay
+                    const npSeekBar = document.getElementById('cmNpSeekBar');
+                    if (npSeekBar) npSeekBar.value = pct;
+                    const npCurTime = document.getElementById('cmNpCurTime');
+                    if (npCurTime) npCurTime.textContent = this.formatTime(cur);
+
+                    // Karaoke lyrics synchronization
+                    this.syncLyricsWithTime(cur);
+
+                    // Crossfade auto-transition
+                    if (this.crossfadeSec > 0 && dur > 12 && (dur - cur) <= this.crossfadeSec && !this.isFadingOut) {
+                        this.isFadingOut = true;
+                        if (this.gainNode && this.audioCtx) {
+                            const now = this.audioCtx.currentTime;
+                            const curVol = this.gainNode.gain.value;
+                            this.gainNode.gain.setValueAtTime(curVol, now);
+                            this.gainNode.gain.linearRampToValueAtTime(0.001, now + this.crossfadeSec);
+                        }
+                        setTimeout(() => {
+                            this.playNext();
+                        }, this.crossfadeSec * 1000);
+                    }
                 }
             });
 
             this.audio.addEventListener('loadedmetadata', () => {
                 const totalTime = document.getElementById('cmTotalTime');
                 if (totalTime) totalTime.textContent = this.formatTime(this.audio.duration);
+                const npTotTime = document.getElementById('cmNpTotTime');
+                if (npTotTime) npTotTime.textContent = this.formatTime(this.audio.duration);
             });
 
-            this.audio.addEventListener('play', () => this.updatePlayBtn(true));
-            this.audio.addEventListener('pause', () => this.updatePlayBtn(false));
-            this.audio.addEventListener('ended', () => this.playNext());
+            this.audio.addEventListener('play', () => {
+                this.updatePlayBtn(true);
+                this.initAudioGraph();
+                if (this.nowPlayingOpen) {
+                    this.startVisualizer();
+                    document.getElementById('cmNpCoverContainer')?.classList.add('spinning');
+                }
+            });
+
+            this.audio.addEventListener('pause', () => {
+                this.updatePlayBtn(false);
+                this.stopVisualizer();
+                document.getElementById('cmNpCoverContainer')?.classList.remove('spinning');
+            });
+
+            this.audio.addEventListener('ended', () => {
+                if (!this.isFadingOut) {
+                    this.playNext();
+                }
+            });
+
+            // Media Session API integration
+            if ('mediaSession' in navigator) {
+                try {
+                    navigator.mediaSession.setActionHandler('play', () => this.togglePlayPause());
+                    navigator.mediaSession.setActionHandler('pause', () => this.togglePlayPause());
+                    navigator.mediaSession.setActionHandler('previoustrack', () => this.playPrev());
+                    navigator.mediaSession.setActionHandler('nexttrack', () => this.playNext());
+                    navigator.mediaSession.setActionHandler('seekto', (details) => {
+                        if (details.seekTime != null && this.audio.duration) {
+                            this.audio.currentTime = details.seekTime;
+                        }
+                    });
+                    navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+                        this.audio.currentTime = Math.max(0, this.audio.currentTime - (details.seekOffset || 10));
+                    });
+                    navigator.mediaSession.setActionHandler('seekforward', (details) => {
+                        this.audio.currentTime = Math.min(this.audio.duration || 0, this.audio.currentTime + (details.seekOffset || 10));
+                    });
+                } catch (e) {
+                    console.warn('MediaSession action handlers setup notice:', e);
+                }
+            }
+        }
+
+        updateMediaSession(track) {
+            if (!('mediaSession' in navigator) || !track) return;
+            try {
+                const coverUrl = track.cover_url || track.coverUrl;
+                const fullCoverUrl = coverUrl ? (coverUrl.startsWith('http') ? coverUrl : window.location.origin + coverUrl) : '';
+                const artwork = fullCoverUrl ? [
+                    { src: fullCoverUrl, sizes: '512x512', type: 'image/jpeg' },
+                    { src: fullCoverUrl, sizes: '256x256', type: 'image/jpeg' },
+                    { src: fullCoverUrl, sizes: '96x96', type: 'image/jpeg' }
+                ] : [];
+
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: track.title || track.name || track.filename,
+                    artist: track.artist || 'Unknown Artist',
+                    album: track.album || '',
+                    artwork: artwork
+                });
+            } catch (e) {}
         }
 
         playTrack(track, queue = [], index = 0) {
@@ -2378,20 +3385,62 @@
             this.queue = queue.length ? queue : [track];
             this.currentIndex = index;
 
+            this.initAudioGraph();
+
             const fileId = track.file_id || track.id;
             this.audio.src = `/api/stream/${fileId}`;
+
+            // Crossfade fade-in on start
+            if (this.gainNode && this.audioCtx && this.crossfadeSec > 0) {
+                const now = this.audioCtx.currentTime;
+                const targetVol = this.audio.muted ? 0 : (this.audio.volume ?? 0.85);
+                this.gainNode.gain.setValueAtTime(0.001, now);
+                this.gainNode.gain.linearRampToValueAtTime(targetVol, now + Math.min(this.crossfadeSec, 1.5));
+            }
+            this.isFadingOut = false;
+
             this.audio.play().catch(e => console.error('Audio playback error:', e));
 
+            // Main player bar elements
             const titleEl = document.getElementById('cmPlayerTitle');
             const artistEl = document.getElementById('cmPlayerArtist');
             const fmtEl = document.getElementById('cmPlayerFormat');
             const thumbEl = document.getElementById('cmPlayerThumbWrapper');
 
+            const title = track.title || track.name || track.filename;
+            const artist = track.artist || 'Unknown Artist';
+            const album = track.album || '';
             const coverUrl = track.cover_url || track.coverUrl || '';
-            if (titleEl) titleEl.textContent = track.title || track.name || track.filename;
-            if (artistEl) artistEl.textContent = track.artist || 'Unknown Artist';
+
+            if (titleEl) titleEl.textContent = title;
+            if (artistEl) artistEl.textContent = artist;
             if (fmtEl) fmtEl.textContent = track.format || 'AUDIO';
             if (thumbEl) thumbEl.innerHTML = this.renderCoverHtml(coverUrl, 'crow-music-cover-img');
+
+            // Now Playing overlay elements
+            const npTitle = document.getElementById('cmNpTitle');
+            const npArtist = document.getElementById('cmNpArtist');
+            const npAlbum = document.getElementById('cmNpAlbum');
+            const npCoverImg = document.getElementById('cmNpCoverImg');
+            const npBackdrop = document.getElementById('cmNpBackdrop');
+
+            if (npTitle) npTitle.textContent = title;
+            if (npArtist) npArtist.textContent = artist;
+            if (npAlbum) npAlbum.textContent = album;
+            if (npCoverImg) {
+                npCoverImg.src = coverUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240"><rect width="240" height="240" fill="%231e2433"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="%2338bdf8" font-size="72" font-family="sans-serif">🎵</text></svg>';
+            }
+            if (npBackdrop) {
+                if (coverUrl) {
+                    npBackdrop.style.backgroundImage = `url("${coverUrl}")`;
+                } else {
+                    npBackdrop.style.backgroundImage = 'radial-gradient(circle at center, #0088cc 0%, #080a0f 70%)';
+                }
+            }
+
+            // Load Lyrics & Media Session
+            this.loadTrackLyrics(track);
+            this.updateMediaSession(track);
 
             this.renderCurrentView();
         }
@@ -2419,6 +3468,7 @@
                 this.playTrack(this.allTracks[0], this.allTracks, 0);
                 return;
             }
+            this.initAudioGraph();
             if (this.audio.paused) {
                 this.audio.play().catch(e => {});
             } else {
@@ -2451,28 +3501,753 @@
         toggleShuffle() {
             this.isShuffle = !this.isShuffle;
             document.getElementById('cmShuffleBtn')?.classList.toggle('active', this.isShuffle);
+            document.getElementById('cmNpShuffleBtn')?.classList.toggle('active', this.isShuffle);
         }
 
         toggleRepeat() {
             this.repeatMode = (this.repeatMode + 1) % 3;
             const icons = ['➡️', '🔁', '🔂'];
             const btn = document.getElementById('cmRepeatBtn');
+            const npBtn = document.getElementById('cmNpRepeatBtn');
             if (btn) {
                 btn.textContent = icons[this.repeatMode];
                 btn.classList.toggle('active', this.repeatMode > 0);
+            }
+            if (npBtn) {
+                npBtn.textContent = icons[this.repeatMode];
+                npBtn.classList.toggle('active', this.repeatMode > 0);
             }
         }
 
         toggleMute() {
             this.audio.muted = !this.audio.muted;
             const btn = document.getElementById('cmVolumeBtn');
-            if (btn) btn.textContent = this.audio.muted ? '🔇' : '🔊';
+            const npBtn = document.getElementById('cmNpVolBtn');
+            const icon = this.audio.muted ? '🔇' : '🔊';
+            if (btn) btn.textContent = icon;
+            if (npBtn) npBtn.textContent = icon;
+            if (this.gainNode && this.audioCtx) {
+                this.gainNode.gain.value = this.audio.muted ? 0 : (this.audio.volume ?? 0.85);
+            }
         }
 
         updatePlayBtn(isPlaying) {
             this.isPlaying = isPlaying;
+            const icon = isPlaying ? '⏸' : '▶';
             const btn = document.getElementById('cmPlayBtn');
-            if (btn) btn.textContent = isPlaying ? '⏸' : '▶';
+            const npBtn = document.getElementById('cmNpPlayBtn');
+            if (btn) btn.textContent = icon;
+            if (npBtn) npBtn.textContent = icon;
+        }
+
+        // ==========================================
+        // NOW PLAYING OVERLAY & CANVAS VISUALIZER
+        // ==========================================
+        toggleNowPlaying() {
+            const modal = document.getElementById('cmNowPlayingModal');
+            if (this.nowPlayingOpen || (modal && (modal.classList.contains('active') || modal.style.display === 'flex'))) {
+                this.closeNowPlaying();
+            } else {
+                this.openNowPlaying();
+            }
+        }
+
+        openNowPlaying(showLyrics = false) {
+            this.initAudioGraph();
+            this.nowPlayingOpen = true;
+            const modal = document.getElementById('cmNowPlayingModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                modal.classList.add('active', 'open');
+            }
+
+            if (this.currentTrack) {
+                const track = this.currentTrack;
+                const title = track.title || track.name || 'Выберите трек';
+                const artist = track.artist || track.album_artist || 'CrowMusic Player';
+                const album = track.album || '';
+                const coverUrl = track.cover_url || track.coverUrl || '';
+
+                const npTitle = document.getElementById('cmNpTitle');
+                const npArtist = document.getElementById('cmNpArtist');
+                const npAlbum = document.getElementById('cmNpAlbum');
+                const npCoverImg = document.getElementById('cmNpCoverImg');
+                const npBackdrop = document.getElementById('cmNpBackdrop');
+
+                if (npTitle) npTitle.textContent = title;
+                if (npArtist) npArtist.textContent = artist;
+                if (npAlbum) npAlbum.textContent = album;
+                if (npCoverImg) {
+                    npCoverImg.src = coverUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240"><rect width="240" height="240" fill="%231e2433"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="%2338bdf8" font-size="72" font-family="sans-serif">🎵</text></svg>';
+                }
+                if (npBackdrop) {
+                    if (coverUrl) {
+                        npBackdrop.style.backgroundImage = `url("${coverUrl}")`;
+                    } else {
+                        npBackdrop.style.backgroundImage = 'radial-gradient(circle at center, #0088cc 0%, #080a0f 70%)';
+                    }
+                }
+
+                if (showLyrics || this.lyricsOpen) {
+                    if (!this.parsedLyrics.length || this.currentLyricsTrackId !== String(track.file_id || track.id)) {
+                        this.loadTrackLyrics(track);
+                    }
+                }
+            } else if (this.allTracks.length) {
+                // If nothing playing, show preview of first track
+                const first = this.allTracks[0];
+                const npTitle = document.getElementById('cmNpTitle');
+                const npArtist = document.getElementById('cmNpArtist');
+                if (npTitle) npTitle.textContent = first.title || first.filename;
+                if (npArtist) npArtist.textContent = first.artist || 'CrowMusic';
+                this.loadTrackLyrics(first);
+            }
+
+            if (showLyrics) {
+                const lyricsPane = document.getElementById('cmNpLyricsPane');
+                if (lyricsPane) lyricsPane.style.display = 'flex';
+                document.getElementById('cmNpLyricsToggle')?.classList.add('active');
+            }
+
+            this.resizeCanvas();
+            window.addEventListener('resize', this._onCanvasResize = () => this.resizeCanvas());
+
+            if (!this.audio.paused) {
+                this.startVisualizer();
+                document.getElementById('cmNpCoverContainer')?.classList.add('spinning');
+            }
+        }
+
+        closeNowPlaying() {
+            this.nowPlayingOpen = false;
+            const modal = document.getElementById('cmNowPlayingModal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.classList.remove('active', 'open');
+            }
+            this.stopVisualizer();
+            document.getElementById('cmNpCoverContainer')?.classList.remove('spinning');
+            if (this._onCanvasResize) {
+                window.removeEventListener('resize', this._onCanvasResize);
+                this._onCanvasResize = null;
+            }
+        }
+
+        setVisualizerMode(mode) {
+            this.visualizerMode = mode;
+            localStorage.setItem('crowmusic_vis_mode', mode);
+            document.querySelectorAll('.cm-np-mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+        }
+
+        resizeCanvas() {
+            const canvas = document.getElementById('cmVisualizerCanvas');
+            if (!canvas) return;
+            const rect = canvas.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+        }
+
+        startVisualizer() {
+            this.initAudioGraph();
+            if (this.animFrameId) cancelAnimationFrame(this.animFrameId);
+            this.renderVisualizerFrame();
+        }
+
+        stopVisualizer() {
+            if (this.animFrameId) {
+                cancelAnimationFrame(this.animFrameId);
+                this.animFrameId = null;
+            }
+            const canvas = document.getElementById('cmVisualizerCanvas');
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        renderVisualizerFrame() {
+            if (!this.nowPlayingOpen || !this.analyser) return;
+
+            const canvas = document.getElementById('cmVisualizerCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            const width = canvas.width;
+            const height = canvas.height;
+            ctx.clearRect(0, 0, width, height);
+
+            if (this.visualizerMode === 'bars') {
+                const bufferLength = 64;
+                const dataArray = new Uint8Array(bufferLength);
+                this.analyser.getByteFrequencyData(dataArray);
+
+                const barWidth = (width / bufferLength) * 0.8;
+                const gap = (width / bufferLength) * 0.2;
+                let x = gap / 2;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const rawVal = dataArray[i] / 255.0;
+                    const barHeight = rawVal * (height * 0.65);
+
+                    // Peak caps logic with smooth gravity fall
+                    if (barHeight > this.peakBars[i]) {
+                        this.peakBars[i] = barHeight;
+                    } else {
+                        this.peakBars[i] = Math.max(0, this.peakBars[i] - 1.8 * (window.devicePixelRatio || 1));
+                    }
+
+                    // Gradient for bar
+                    const grad = ctx.createLinearGradient(0, height, 0, height - barHeight);
+                    grad.addColorStop(0, 'rgba(0, 136, 204, 0.2)');
+                    grad.addColorStop(0.5, '#0088cc');
+                    grad.addColorStop(1, '#00f0ff');
+
+                    ctx.fillStyle = grad;
+                    ctx.shadowBlur = 8;
+                    ctx.shadowColor = '#00f0ff';
+                    ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+
+                    // Draw peak dot
+                    if (this.peakBars[i] > 2) {
+                        ctx.fillStyle = '#ffffff';
+                        ctx.shadowBlur = 12;
+                        ctx.shadowColor = '#ffffff';
+                        ctx.fillRect(x, height - this.peakBars[i] - 3, barWidth, 3);
+                    }
+
+                    ctx.shadowBlur = 0;
+                    x += barWidth + gap;
+                }
+            } else if (this.visualizerMode === 'radial') {
+                const bufferLength = 80;
+                const dataArray = new Uint8Array(bufferLength);
+                this.analyser.getByteFrequencyData(dataArray);
+
+                const cx = width / 2;
+                const cy = height / 2;
+                const baseRadius = Math.min(width, height) * 0.27;
+
+                ctx.save();
+                ctx.translate(cx, cy);
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const angle = (i / bufferLength) * Math.PI * 2;
+                    const val = dataArray[i] / 255.0;
+                    const barLen = val * (Math.min(width, height) * 0.22);
+
+                    const x1 = Math.cos(angle) * baseRadius;
+                    const y1 = Math.sin(angle) * baseRadius;
+                    const x2 = Math.cos(angle) * (baseRadius + barLen);
+                    const y2 = Math.sin(angle) * (baseRadius + barLen);
+
+                    ctx.strokeStyle = `hsl(${185 + val * 45}, 100%, ${50 + val * 25}%)`;
+                    ctx.lineWidth = 3.5 * (window.devicePixelRatio || 1);
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#00f0ff';
+
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+                }
+                ctx.restore();
+                ctx.shadowBlur = 0;
+            } else if (this.visualizerMode === 'waveform') {
+                const bufferLength = 256;
+                const dataArray = new Uint8Array(bufferLength);
+                this.analyser.getByteTimeDomainData(dataArray);
+
+                ctx.lineWidth = 3.5 * (window.devicePixelRatio || 1);
+                ctx.strokeStyle = '#00f0ff';
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = '#00f0ff';
+                ctx.beginPath();
+
+                const sliceWidth = width / bufferLength;
+                let x = 0;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = (v * height) / 2;
+
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+
+                    x += sliceWidth;
+                }
+                ctx.lineTo(width, height / 2);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+
+            this.animFrameId = requestAnimationFrame(() => this.renderVisualizerFrame());
+        }
+
+        // ==========================================
+        // SYNCHRONIZED LYRICS & KARAOKE ENGINE
+        // ==========================================
+        toggleLyricsModal() {
+            const modal = document.getElementById('cmLyricsModal');
+            if (this.lyricsModalOpen || (modal && (modal.classList.contains('active') || modal.style.display === 'flex'))) {
+                this.closeLyricsModal();
+            } else {
+                this.openLyricsModal();
+            }
+        }
+
+        openLyricsModal() {
+            const modal = document.getElementById('cmLyricsModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                modal.classList.add('active', 'open');
+            }
+            this.lyricsModalOpen = true;
+
+            const current = this.currentTrack || (this.allTracks.length ? this.allTracks[0] : null);
+            if (current) {
+                const titleEl = document.getElementById('cmLyricsModalTitle');
+                const artistEl = document.getElementById('cmLyricsModalArtist');
+                if (titleEl) titleEl.textContent = current.title || current.name || 'Трек';
+                if (artistEl) artistEl.textContent = current.artist || current.album_artist || '';
+
+                if (!this.parsedLyrics.length || this.currentLyricsTrackId !== String(current.file_id || current.id)) {
+                    this.loadTrackLyrics(current);
+                } else {
+                    this.renderLyricsUI(this.parsedLyrics[0]?.time !== -1);
+                }
+            } else {
+                this.renderEmptyLyricsUI();
+            }
+        }
+
+        closeLyricsModal() {
+            const modal = document.getElementById('cmLyricsModal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.classList.remove('active', 'open');
+            }
+            this.lyricsModalOpen = false;
+        }
+
+        toggleLyricsPane() {
+            const pane = document.getElementById('cmNpLyricsPane');
+            const btn = document.getElementById('cmNpLyricsToggle');
+            if (!pane) return;
+            const isVisible = pane.style.display !== 'none';
+            pane.style.display = isVisible ? 'none' : 'flex';
+            if (btn) btn.classList.toggle('active', !isVisible);
+        }
+
+        renderEmptyLyricsUI() {
+            const emptyHtml = `
+                <div class="cm-lyrics-empty">
+                    <div style="font-size:32px; margin-bottom:10px;">💬</div>
+                    <div style="font-size:16px; font-weight:700; color:#e2e8f0; margin-bottom:6px;">Текст песни не найден</div>
+                    <div style="font-size:13px; color:#94a3b8; margin-bottom:18px; max-width:320px; margin-left:auto; margin-right:auto; text-align:center;">Вы можете добавить слова песни вручную или загрузить текст с таймкодами LRC</div>
+                    <button class="cm-insert-custom-lyrics-btn crow-music-btn-secondary" style="padding:8px 18px; font-size:13px; border-radius:8px; display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+                        <span>✏️</span> Вставить свой текст
+                    </button>
+                </div>
+            `;
+            const listEl1 = document.getElementById('cmNpLyricsList');
+            const listEl2 = document.getElementById('cmLyricsModalContent');
+            if (listEl1) listEl1.innerHTML = emptyHtml;
+            if (listEl2) listEl2.innerHTML = emptyHtml;
+
+            document.querySelectorAll('.cm-insert-custom-lyrics-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.openCustomLyricsModal();
+                });
+            });
+        }
+
+        openCustomLyricsModal() {
+            if (!this.currentTrack) {
+                this.showToast('Сначала выберите или запустите трек', false);
+                return;
+            }
+            const track = this.currentTrack;
+            const existing = document.getElementById('cmCustomLyricsModal');
+            if (existing) existing.remove();
+
+            const trackTitle = this.escapeHtml(track.title || track.name || 'Трек');
+
+            const html = `
+                <div id="cmCustomLyricsModal" class="cm-modal-overlay active open" style="z-index:10070;">
+                    <div class="cm-eq-panel" style="max-width:600px; z-index:10075;">
+                        <div class="cm-eq-header">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span>✏️</span>
+                                <span style="font-size:15px; font-weight:700; color:#f3f4f6;">Текст песни: ${trackTitle}</span>
+                            </div>
+                            <button id="cmCloseCustomLyricsBtn" class="close-btn" style="font-size:22px; line-height:1; padding:2px 8px; z-index:10080; cursor:pointer;">&times;</button>
+                        </div>
+                        <div style="padding:20px; display:flex; flex-direction:column; gap:14px;">
+                            <div style="font-size:13px; color:#94a3b8;">Вставьте текст песни (обычные строки или LRC с таймкодами вида <code>[01:23.45] Текст</code>):</div>
+                            <textarea id="cmCustomLyricsInput" class="crow-music-input" placeholder="[00:15.00] Пример строки текста песни...&#10;[00:18.50] Вторая строка..." style="height:240px; resize:vertical; font-family:monospace; font-size:13px; line-height:1.6; padding:14px; border-radius:10px;"></textarea>
+                            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:8px;">
+                                <button id="cmCancelCustomLyricsBtn" class="crow-music-btn-secondary" style="padding:8px 18px; cursor:pointer;">Отмена</button>
+                                <button id="cmSaveCustomLyricsBtn" class="crow-music-btn-primary" style="padding:8px 22px; cursor:pointer;">Сохранить текст</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', html);
+
+            document.getElementById('cmCloseCustomLyricsBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.closeCustomLyricsModal();
+            });
+            document.getElementById('cmCancelCustomLyricsBtn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.closeCustomLyricsModal();
+            });
+            document.getElementById('cmCustomLyricsModal')?.addEventListener('mousedown', (e) => {
+                if (e.target.id === 'cmCustomLyricsModal') this.closeCustomLyricsModal();
+            });
+
+            document.getElementById('cmSaveCustomLyricsBtn')?.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const text = (document.getElementById('cmCustomLyricsInput')?.value || '').trim();
+                if (!text) {
+                    this.showToast('Введите текст песни', false);
+                    return;
+                }
+                const hasLrc = /\[\d{1,2}:\d{2}/.test(text);
+                try {
+                    const res = await fetch('/api/plugins/crow-music/lyrics', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            track_id: String(track.file_id || track.id),
+                            artist: track.artist || '',
+                            title: track.title || track.name || '',
+                            album: track.album || '',
+                            plain_lyrics: hasLrc ? '' : text,
+                            synced_lyrics: hasLrc ? text : ''
+                        })
+                    });
+                    if (res.ok) {
+                        this.showToast('✓ Текст песни успешно сохранен!');
+                        this.closeCustomLyricsModal();
+                        const badge1 = document.getElementById('cmNpLyricsSourceBadge');
+                        const badge2 = document.getElementById('cmLyricsModalBadge');
+                        if (badge1) badge1.textContent = 'CUSTOM';
+                        if (badge2) badge2.textContent = 'CUSTOM';
+                        if (hasLrc) {
+                            this.parsedLyrics = this.parseLRC(text);
+                            this.renderLyricsUI(true);
+                        } else {
+                            this.parsedLyrics = text.split('\n').map(l => ({ time: -1, text: l.trim() })).filter(l => l.text);
+                            this.renderLyricsUI(false);
+                        }
+                    } else {
+                        this.showToast('Ошибка сохранения текста', false);
+                    }
+                } catch (err) {
+                    this.showToast('Ошибка сети при сохранении текста', false);
+                }
+            });
+        }
+
+        closeCustomLyricsModal() {
+            const modal = document.getElementById('cmCustomLyricsModal');
+            if (modal) modal.remove();
+        }
+
+        async loadTrackLyrics(track) {
+            if (!track) return;
+            const trackId = String(track.file_id || track.id);
+            this.currentLyricsTrackId = trackId;
+            this.parsedLyrics = [];
+            this.currentLyricIdx = -1;
+
+            const listEl1 = document.getElementById('cmNpLyricsList');
+            const listEl2 = document.getElementById('cmLyricsModalContent');
+            const badge1 = document.getElementById('cmNpLyricsSourceBadge');
+            const badge2 = document.getElementById('cmLyricsModalBadge');
+
+            const loadingHtml = '<div class="cm-lyrics-empty">Загрузка текста песни... ⏳</div>';
+            if (listEl1) listEl1.innerHTML = loadingHtml;
+            if (listEl2) listEl2.innerHTML = loadingHtml;
+
+            const titleEl = document.getElementById('cmLyricsModalTitle');
+            const artistEl = document.getElementById('cmLyricsModalArtist');
+            if (titleEl) titleEl.textContent = track.title || track.name || 'Трек';
+            if (artistEl) artistEl.textContent = track.artist || track.album_artist || '';
+
+            try {
+                const artist = encodeURIComponent(track.artist || '');
+                const title = encodeURIComponent(track.title || track.name || '');
+                const album = encodeURIComponent(track.album || '');
+                const dur = track.duration || 0;
+                const path = encodeURIComponent(track.path || '');
+
+                const res = await fetch(`/api/plugins/crow-music/lyrics?track_id=${trackId}&artist=${artist}&title=${title}&album=${album}&duration=${dur}&path=${path}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (this.currentLyricsTrackId !== trackId) return; // Stale track
+
+                    const sourceLabel = data.source ? data.source.toUpperCase() : 'LRCLIB';
+                    if (badge1) badge1.textContent = sourceLabel;
+                    if (badge2) badge2.textContent = sourceLabel;
+
+                    if (data.synced && data.synced_lyrics) {
+                        this.parsedLyrics = this.parseLRC(data.synced_lyrics);
+                        this.renderLyricsUI(true);
+                    } else if (data.plain_lyrics) {
+                        this.parsedLyrics = data.plain_lyrics.split('\n').map(l => ({ time: -1, text: l.trim() })).filter(l => l.text);
+                        this.renderLyricsUI(false);
+                    } else {
+                        this.renderEmptyLyricsUI();
+                    }
+                } else {
+                    this.renderEmptyLyricsUI();
+                }
+            } catch (e) {
+                this.renderEmptyLyricsUI();
+            }
+        }
+
+        parseLRC(lrcText) {
+            if (!lrcText) return [];
+            const lines = lrcText.split('\n');
+            const result = [];
+            const timeRegex = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]/g;
+
+            for (const line of lines) {
+                const matches = [...line.matchAll(timeRegex)];
+                if (matches.length) {
+                    const text = line.replace(timeRegex, '').trim();
+                    for (const match of matches) {
+                        const min = parseInt(match[1], 10);
+                        const sec = parseInt(match[2], 10);
+                        const msStr = match[3] || '0';
+                        const ms = parseInt(msStr.padEnd(3, '0').slice(0, 3), 10);
+                        const totalSeconds = min * 60 + sec + ms / 1000;
+                        result.push({ time: totalSeconds, text: text || '♪' });
+                    }
+                }
+            }
+            return result.sort((a, b) => a.time - b.time);
+        }
+
+        renderLyricsUI(isSynced) {
+            const listEl1 = document.getElementById('cmNpLyricsList');
+            const listEl2 = document.getElementById('cmLyricsModalContent');
+
+            if (!this.parsedLyrics.length) {
+                this.renderEmptyLyricsUI();
+                return;
+            }
+
+            const html = this.parsedLyrics.map((item, idx) => {
+                return `<div class="cm-lyrics-line" id="cmLyricLine_${idx}" data-idx="${idx}" data-time="${item.time}">${this.escapeHtml(item.text)}</div>`;
+            }).join('');
+
+            const htmlModal = this.parsedLyrics.map((item, idx) => {
+                return `<div class="cm-lyrics-line cm-lyrics-modal-line" id="cmModalLyricLine_${idx}" data-idx="${idx}" data-time="${item.time}">${this.escapeHtml(item.text)}</div>`;
+            }).join('');
+
+            if (listEl1) listEl1.innerHTML = html;
+            if (listEl2) listEl2.innerHTML = htmlModal;
+
+            // Click on lyric line to seek
+            if (isSynced) {
+                document.querySelectorAll('.cm-lyrics-line').forEach(lineEl => {
+                    lineEl.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const time = parseFloat(lineEl.dataset.time);
+                        if (!isNaN(time) && time >= 0 && this.audio.duration) {
+                            this.audio.currentTime = time;
+                        }
+                    });
+                });
+            }
+        }
+
+        syncLyricsWithTime(currentTime) {
+            if (!this.parsedLyrics.length || this.parsedLyrics[0].time === -1) return;
+
+            // Find current active lyric line
+            let activeIdx = -1;
+            for (let i = 0; i < this.parsedLyrics.length; i++) {
+                if (currentTime >= this.parsedLyrics[i].time) {
+                    activeIdx = i;
+                } else {
+                    break;
+                }
+            }
+
+            if (activeIdx !== this.currentLyricIdx) {
+                this.currentLyricIdx = activeIdx;
+                document.querySelectorAll('.cm-lyrics-line').forEach((el) => {
+                    const idx = parseInt(el.dataset.idx, 10);
+                    el.classList.toggle('cm-lyrics-active', idx === activeIdx);
+                    el.classList.toggle('cm-lyrics-passed', idx < activeIdx);
+                });
+
+                if (activeIdx >= 0) {
+                    const activeEl1 = document.getElementById(`cmLyricLine_${activeIdx}`);
+                    if (activeEl1 && this.nowPlayingOpen) {
+                        activeEl1.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                    const activeEl2 = document.getElementById(`cmModalLyricLine_${activeIdx}`);
+                    if (activeEl2 && this.lyricsModalOpen) {
+                        activeEl2.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 10-BAND EQUALIZER & CROSSFADE ENGINE
+        // ==========================================
+        toggleEqualizer() {
+            const modal = document.getElementById('cmEqualizerModal');
+            if (this.eqModalOpen || (modal && (modal.classList.contains('active') || modal.style.display === 'flex'))) {
+                this.closeEqualizer();
+            } else {
+                this.openEqualizer();
+            }
+        }
+
+        openEqualizer() {
+            this.initAudioGraph();
+            const modal = document.getElementById('cmEqualizerModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                modal.classList.add('active', 'open');
+            }
+            this.eqModalOpen = true;
+            this.renderEqSliders();
+
+            const toggle = document.getElementById('cmEqEnableToggle');
+            const toggleText = document.getElementById('cmEqToggleText');
+            if (toggle) toggle.checked = this.eqEnabled;
+            if (toggleText) toggleText.textContent = this.eqEnabled ? 'ВКЛ' : 'ВЫКЛ';
+
+            const cfSelect = document.getElementById('cmCrossfadeSelect');
+            if (cfSelect) cfSelect.value = String(this.crossfadeSec);
+
+            // Active preset pill
+            document.querySelectorAll('.cm-eq-pill').forEach(p => {
+                p.classList.toggle('active', p.dataset.preset === this.eqPreset);
+            });
+        }
+
+        closeEqualizer() {
+            const modal = document.getElementById('cmEqualizerModal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.classList.remove('active', 'open');
+            }
+            this.eqModalOpen = false;
+        }
+
+        renderEqSliders() {
+            const grid = document.getElementById('cmEqSlidersGrid');
+            if (!grid) return;
+
+            grid.innerHTML = this.eqFrequencies.map((freq, idx) => {
+                const gain = this.eqGains[idx] || 0;
+                const freqLabel = freq >= 1000 ? `${freq / 1000}k` : `${freq}`;
+                const sign = gain > 0 ? '+' : '';
+                return `
+                    <div class="cm-eq-col">
+                        <span class="cm-eq-db-badge" id="cmEqDb_${idx}">${sign}${gain}dB</span>
+                        <div class="cm-eq-slider-wrapper">
+                            <input type="range" class="cm-eq-slider" id="cmEqSlider_${idx}" data-idx="${idx}" min="-12" max="12" step="0.5" value="${gain}" />
+                        </div>
+                        <span class="cm-eq-freq-label">${freqLabel}</span>
+                    </div>
+                `;
+            }).join('');
+
+            // Bind slider change events
+            this.eqFrequencies.forEach((_, idx) => {
+                const slider = document.getElementById(`cmEqSlider_${idx}`);
+                slider?.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    this.setEqBandGain(idx, val);
+                });
+            });
+        }
+
+        setEqBandGain(bandIdx, gainDb) {
+            this.eqGains[bandIdx] = gainDb;
+            localStorage.setItem('crowmusic_eq_gains', JSON.stringify(this.eqGains));
+
+            const badge = document.getElementById(`cmEqDb_${bandIdx}`);
+            if (badge) {
+                badge.textContent = `${gainDb > 0 ? '+' : ''}${gainDb}dB`;
+            }
+
+            if (this.eqFilters[bandIdx] && this.audioCtx) {
+                const targetVal = this.eqEnabled ? gainDb : 0;
+                this.eqFilters[bandIdx].gain.setTargetAtTime(targetVal, this.audioCtx.currentTime, 0.05);
+            }
+
+            // Set preset to Custom
+            this.eqPreset = 'Custom';
+            document.querySelectorAll('.cm-eq-pill').forEach(p => p.classList.remove('active'));
+        }
+
+        setEqPreset(presetName) {
+            const gains = this.eqPresets[presetName];
+            if (!gains) return;
+            this.eqPreset = presetName;
+            localStorage.setItem('crowmusic_eq_preset', presetName);
+            this.eqGains = [...gains];
+            localStorage.setItem('crowmusic_eq_gains', JSON.stringify(this.eqGains));
+
+            // Update UI sliders and filter gains
+            this.eqFrequencies.forEach((_, idx) => {
+                const val = gains[idx] || 0;
+                const slider = document.getElementById(`cmEqSlider_${idx}`);
+                if (slider) slider.value = val;
+                const badge = document.getElementById(`cmEqDb_${idx}`);
+                if (badge) badge.textContent = `${val > 0 ? '+' : ''}${val}dB`;
+
+                if (this.eqFilters[idx] && this.audioCtx) {
+                    const targetVal = this.eqEnabled ? val : 0;
+                    this.eqFilters[idx].gain.setTargetAtTime(targetVal, this.audioCtx.currentTime, 0.05);
+                }
+            });
+
+            document.querySelectorAll('.cm-eq-pill').forEach(p => {
+                p.classList.toggle('active', p.dataset.preset === presetName);
+            });
+        }
+
+        toggleEqBypass(enabled) {
+            this.eqEnabled = enabled;
+            localStorage.setItem('crowmusic_eq_enabled', String(enabled));
+
+            const toggleText = document.getElementById('cmEqToggleText');
+            if (toggleText) toggleText.textContent = enabled ? 'ВКЛ' : 'ВЫКЛ';
+
+            if (this.audioCtx && this.eqFilters.length) {
+                this.eqFrequencies.forEach((_, idx) => {
+                    const targetVal = enabled ? (this.eqGains[idx] || 0) : 0;
+                    this.eqFilters[idx].gain.setTargetAtTime(targetVal, this.audioCtx.currentTime, 0.05);
+                });
+            }
+        }
+
+        resetEq() {
+            this.setEqPreset('Flat');
+        }
+
+        setCrossfadeSec(sec) {
+            this.crossfadeSec = sec;
+            localStorage.setItem('crowmusic_crossfade', String(sec));
         }
 
         formatTime(seconds) {
@@ -2502,9 +4277,10 @@
                 document.querySelectorAll('.sidebar-nav .nav-link').forEach(l => l.classList.remove('active'));
                 document.getElementById('navMusicBtn')?.classList.add('active');
             }
-            if (this.allTracks.length === 0) {
-                this.scanLibrary();
-            }
+            // Instant SWR: render from SQLite cache, then silently sync in background
+            this.fetchLibrary().then(() => {
+                this.backgroundSync();
+            });
         }
 
         close() {

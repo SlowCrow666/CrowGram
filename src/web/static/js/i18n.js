@@ -104,6 +104,7 @@
                 clearCompleted: 'Очистить завершенные',
                 toggle: 'Свернуть/Развернуть',
                 uploading: 'Загрузка...',
+                scanning: '🔍 Сканирование файлов и папок...',
                 completed: 'Завершено',
                 failed: 'Ошибка'
             },
@@ -338,6 +339,7 @@
                 clearCompleted: 'Clear completed',
                 toggle: 'Collapse/Expand',
                 uploading: 'Uploading...',
+                scanning: '🔍 Scanning files and folders...',
                 completed: 'Completed',
                 failed: 'Failed'
             },

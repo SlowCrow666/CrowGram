@@ -652,11 +652,133 @@ async function deletePluginFile(pluginName) {
     loadPlugins();
 }
 
+async function readAllDirectoryEntries(dirReader) {
+    const allEntries = [];
+    let batch;
+    do {
+        batch = await new Promise((resolve) => {
+            dirReader.readEntries(
+                (entries) => resolve(entries || []),
+                (err) => {
+                    console.warn('readEntries error:', err);
+                    resolve([]);
+                }
+            );
+        });
+        if (batch && batch.length > 0) {
+            allEntries.push(...batch);
+        }
+    } while (batch && batch.length > 0);
+    return allEntries;
+}
+
+async function scanFileSystemEntry(entry, relativePath = '') {
+    if (!entry) return [];
+
+    if (entry.isFile) {
+        return new Promise((resolve) => {
+            entry.file(
+                (file) => {
+                    if (file) {
+                        file.fullRelativePath = relativePath + file.name;
+                        resolve([file]);
+                    } else {
+                        resolve([]);
+                    }
+                },
+                (err) => {
+                    console.warn('entry.file error:', err);
+                    resolve([]);
+                }
+            );
+        });
+    } else if (entry.isDirectory) {
+        const dirReader = entry.createReader();
+        const entries = await readAllDirectoryEntries(dirReader);
+        const nextPath = relativePath + entry.name + '/';
+        const nestedArrays = await Promise.all(
+            entries.map(child => scanFileSystemEntry(child, nextPath))
+        );
+        return nestedArrays.flat();
+    }
+    return [];
+}
+
+async function handleDroppedItems(dataTransfer) {
+    if (!dataTransfer) return;
+
+    const dropZone = document.getElementById('dropZone');
+    const dropText = dropZone ? dropZone.querySelector('p') : null;
+    const originalText = dropText ? dropText.textContent : '';
+    if (dropText) {
+        dropText.textContent = window.t ? (window.t('upload.scanning') || '🔍 Сканирование файлов и папок...') : '🔍 Сканирование файлов и папок...';
+    }
+
+    try {
+        let extractedFiles = [];
+
+        // 1. Try modern DataTransferItemList with FileSystem API (webkitGetAsEntry)
+        if (dataTransfer.items && dataTransfer.items.length) {
+            const scanPromises = [];
+            for (let i = 0; i < dataTransfer.items.length; i++) {
+                const item = dataTransfer.items[i];
+                if (item.kind === 'file') {
+                    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                    if (entry) {
+                        scanPromises.push(scanFileSystemEntry(entry, ''));
+                    } else {
+                        const file = item.getAsFile ? item.getAsFile() : null;
+                        if (file) {
+                            file.fullRelativePath = file.name;
+                            scanPromises.push(Promise.resolve([file]));
+                        }
+                    }
+                }
+            }
+            if (scanPromises.length) {
+                const results = await Promise.all(scanPromises);
+                extractedFiles = results.flat();
+            }
+        }
+
+        // 2. Fallback to dataTransfer.files if items scanning returned nothing
+        if (!extractedFiles.length && dataTransfer.files && dataTransfer.files.length) {
+            for (let i = 0; i < dataTransfer.files.length; i++) {
+                const file = dataTransfer.files[i];
+                if (file.size > 0 || (file.type !== '' && file.type !== 'application/x-directory')) {
+                    file.fullRelativePath = file.webkitRelativePath || file.name;
+                    extractedFiles.push(file);
+                }
+            }
+        }
+
+        if (extractedFiles.length > 0) {
+            uploadFiles(extractedFiles);
+        }
+    } catch (err) {
+        console.error('Error during drag and drop scanning:', err);
+        if (dataTransfer.files && dataTransfer.files.length) {
+            uploadFiles(dataTransfer.files);
+        }
+    } finally {
+        if (dropText) {
+            dropText.textContent = originalText;
+        }
+    }
+}
+
 function setupDragAndDrop() {
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
 
     if (!dropZone) return;
+
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', (e) => {
+        if (!e.target.closest('#dropZone') && !e.target.closest('#pluginDropZone')) {
+            e.preventDefault();
+        }
+    });
 
     dropZone.addEventListener('click', () => fileInput?.click());
     dropZone.addEventListener('dragover', (e) => { 
@@ -664,17 +786,19 @@ function setupDragAndDrop() {
         dropZone.classList.add('dragover'); 
     });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', (e) => {
+    dropZone.addEventListener('drop', async (e) => {
         e.preventDefault();
         dropZone.classList.remove('dragover');
-        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-            uploadFiles(e.dataTransfer.files);
-        }
+        await handleDroppedItems(e.dataTransfer);
     });
 
     fileInput?.addEventListener('change', () => {
         if (fileInput.files && fileInput.files.length) {
-            uploadFiles(fileInput.files);
+            const files = Array.from(fileInput.files);
+            files.forEach(f => {
+                if (f.webkitRelativePath) f.fullRelativePath = f.webkitRelativePath;
+            });
+            uploadFiles(files);
             fileInput.value = '';
         }
     });
@@ -732,10 +856,14 @@ function updateQueueHeader() {
 
 function enqueueUploadTask(file) {
     const taskId = 'up_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    const relPath = file.fullRelativePath || file.webkitRelativePath || '';
+    const displayName = relPath || file.name;
     const task = {
         id: taskId,
         file: file,
-        name: file.name,
+        name: displayName,
+        rawName: file.name,
+        fullRelativePath: relPath,
         size: file.size,
         parentId: currentFolderId,
         driveId: currentDriveId,
@@ -1000,6 +1128,9 @@ function startUploadTask(task) {
     fd.append('file', task.file);
     fd.append('drive_id', task.driveId);
     fd.append('parent_id', task.parentId);
+    if (task.fullRelativePath) {
+        fd.append('relative_path', task.fullRelativePath);
+    }
 
     xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && task.status === 'buffering') {

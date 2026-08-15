@@ -31,7 +31,7 @@ sys.path.append(str(Path(__file__).resolve().parent))
 from src.config import WEB_DIR, TEMP_DIR, LOCALES_DIR, DEFAULT_HOST, DEFAULT_PORT, CHUNK_SIZE_BYTES
 from src.core.db import (
     init_db, set_config, get_config, get_all_config, add_file_record, 
-    add_folder_record, add_chunk_record, list_files_db, list_trash_db, get_file_chunks, get_file_info,
+    add_folder_record, get_or_create_folder_path, add_chunk_record, list_files_db, list_trash_db, get_file_chunks, get_file_info,
     move_to_trash_db, restore_from_trash_db, delete_file_permanently_db, empty_trash_db,
     get_drives, add_drive, update_drive_db, delete_drive_db, get_drive_info, toggle_favorite_db, move_item_db, copy_item_db, get_storage_stats,
     export_db_to_json, import_db_from_json, set_app_password, verify_app_password_db, get_password_recovery_info,
@@ -158,17 +158,15 @@ async def stream_chunk_range(msg_id: int, chat_target, chunk_global_start: int, 
                     s_end = y_end - p_start + 1
                     yield chunk_part[s_start:s_end]
                     
-                part_offset += part_len
-                
+            data = bytes(buffer)
+            if len(data) > 0:
+                chunk_cache[cache_key] = data
+                if len(chunk_cache) > 50:
+                    first_key = next(iter(chunk_cache))
+                    del chunk_cache[first_key]
         except Exception as e:
-            print(f"[WARN] stream_chunk_range error: {e}")
-            
-        data = bytes(buffer)
-        if len(data) > 0:
-            chunk_cache[cache_key] = data
-            if len(chunk_cache) > 50:
-                first_key = next(iter(chunk_cache))
-                del chunk_cache[first_key]
+            logger.warning(f"stream_chunk_range error for msg {msg_id}: {e}")
+            raise
 
 async def get_cached_chunk_data(msg_id: int, chat_target, file_id: Optional[int] = None):
     cache_key = f"{chat_target}_{msg_id}"
@@ -793,7 +791,8 @@ async def upload_file(
     file: UploadFile = File(...), 
     parent_id: Optional[str] = Form(0), 
     drive_id: int = Form(1), 
-    thumbnail: Optional[str] = Form("")
+    thumbnail: Optional[str] = Form(""),
+    relative_path: Optional[str] = Form("")
 ):
     if not tg_manager.is_authorized(): 
         raise HTTPException(status_code=401, detail="Не авторизован в Telegram")
@@ -803,6 +802,16 @@ async def upload_file(
     
     p_id = int(parent_id) if parent_id and str(parent_id).isdigit() else 0
     thumb = thumbnail if thumbnail and thumbnail != "null" else ""
+    
+    # Recreate folder hierarchy if relative_path is provided
+    if relative_path and str(relative_path).strip():
+        norm_path = str(relative_path).replace("\\", "/").strip("/")
+        parts = [p for p in norm_path.split("/") if p and p != "."]
+        if len(parts) > 1:
+            dir_path = "/".join(parts[:-1])
+            p_id = get_or_create_folder_path(dir_path, root_parent_id=p_id, drive_id=drive_id)
+        elif len(parts) == 1 and "/" in str(relative_path):
+            p_id = get_or_create_folder_path(parts[0], root_parent_id=p_id, drive_id=drive_id)
     
     task_id = str(uuid.uuid4())
     temp_path = TEMP_DIR / f"full_temp_{task_id}.tmp"

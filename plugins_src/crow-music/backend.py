@@ -6,7 +6,9 @@ import time
 import hashlib
 import sqlite3
 import logging
+import json
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from collections import Counter
 from typing import Optional, List, Dict, Any
@@ -40,12 +42,14 @@ PLUGIN_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PLUGIN_DIR.parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "plugins" / "crow-music"
 COVERS_DIR = DATA_DIR / "covers"
+LYRICS_CACHE_DIR = PROJECT_ROOT / ".cache" / "crow-music" / "lyrics"
 DB_PATH = DATA_DIR / "music_cache.db"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 COVERS_DIR.mkdir(parents=True, exist_ok=True)
+LYRICS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-AUDIO_EXTENSIONS = {'.mp3', '.flac', '.ogg', '.m4a', '.wav', '.aac', '.opus', '.wma'}
+AUDIO_EXTENSIONS = {'.mp3', '.flac', '.ogg', '.m4a', '.wav', '.aac', '.opus', '.wma', '.ape'}
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'}
 
 ID3_GENRES = {
@@ -136,6 +140,33 @@ def clean_genre(raw_genre: Optional[str]) -> str:
         return GENRE_MAP_RU[g_low]
     return g or "Разное"
 
+def clean_title(title: Optional[str]) -> str:
+    if not title:
+        return ""
+    t = str(title).strip()
+    # Strip leading track numbers: e.g. "01. ", "01 - ", "01_ ", "1. ", "01 "
+    t = re.sub(r'^\d{1,3}[\.\-_\s]+\s*', '', t)
+    # Strip keywords in brackets or parentheses
+    pattern = r'[\(\[\{].*?(remaster|deluxe|bonus|live|edit|feat|ft\.|version|mono|stereo|re-recorded|anniversary|expanded|original|mix|explicit|edition|single|cut|lp|ep).*?[\)\]\}]'
+    t = re.sub(pattern, '', t, flags=re.IGNORECASE)
+    t = re.sub(r'\[.*?\]', '', t)
+    t = re.sub(r'\s*[\(\[\{]\s*[\)\]\}]', '', t)
+    t = re.sub(r'\s*-\s*.*?(remaster|deluxe|bonus|live|edit|feat|version|anniversary|expanded|edition).*$', '', t, flags=re.IGNORECASE)
+    t = t.strip(' -_')
+    return t if t else str(title).strip()
+
+def clean_album(album: Optional[str]) -> str:
+    if not album:
+        return ""
+    a = str(album).strip()
+    pattern = r'[\(\[\{].*?(remaster|deluxe|bonus|anniversary|expanded|edition|version|mono|stereo|re-recorded|special).*?[\)\]\}]'
+    a = re.sub(pattern, '', a, flags=re.IGNORECASE)
+    a = re.sub(r'\[.*?\]', '', a)
+    a = re.sub(r'\s*[\(\[\{]\s*[\)\]\}]', '', a)
+    a = re.sub(r'\s*-\s*.*?(remaster|deluxe|bonus|anniversary|expanded|edition).*$', '', a, flags=re.IGNORECASE)
+    a = a.strip(' -_')
+    return a if a else str(album).strip()
+
 def parse_folder_name(folder_name: str) -> Dict[str, str]:
     if not folder_name:
         return {"artist": "", "album": "", "year": ""}
@@ -146,6 +177,124 @@ def parse_folder_name(folder_name: str) -> Dict[str, str]:
         album = (m.group(3) or "").strip()
         return {"artist": artist, "album": album or folder_name, "year": year}
     return {"artist": "", "album": folder_name, "year": ""}
+
+def parse_cue_time(time_str: str) -> float:
+    """Convert mm:ss:ff (75 frames per second) to float seconds."""
+    parts = time_str.strip().split(":")
+    if len(parts) == 3:
+        try:
+            mm, ss, ff = int(parts[0]), int(parts[1]), int(parts[2])
+            return mm * 60.0 + ss + (ff / 75.0)
+        except Exception:
+            return 0.0
+    elif len(parts) == 2:
+        try:
+            mm, ss = int(parts[0]), int(parts[1])
+            return mm * 60.0 + ss
+        except Exception:
+            return 0.0
+    return 0.0
+
+def decode_cue_bytes(raw: bytes) -> str:
+    """Decode raw CUE bytes with fallback across common rip encodings (UTF-8, CP1251, Latin-1)."""
+    for enc in ["utf-8-sig", "utf-8", "cp1251", "windows-1251", "latin1"]:
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="ignore")
+
+def parse_cue_content(cue_text: str) -> Dict[str, Any]:
+    """Parse CUE sheet text into album metadata and sliced track definitions."""
+    album_artist = ""
+    album_title = ""
+    genre = ""
+    year = ""
+    target_file = ""
+    tracks: List[Dict[str, Any]] = []
+    current_track = None
+
+    def unquote(val: str) -> str:
+        val = val.strip()
+        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+            return val[1:-1].strip()
+        return val
+
+    for line in cue_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        if line.upper().startswith("REM GENRE"):
+            genre = unquote(line[9:].strip())
+        elif line.upper().startswith("REM DATE") or line.upper().startswith("REM YEAR"):
+            year = unquote(re.sub(r"^REM\s+(DATE|YEAR)\s+", "", line, flags=re.IGNORECASE).strip())
+        elif line.upper().startswith("GENRE"):
+            genre = unquote(line[5:].strip())
+        elif line.upper().startswith("DATE") or line.upper().startswith("YEAR"):
+            year = unquote(re.sub(r"^(DATE|YEAR)\s+", "", line, flags=re.IGNORECASE).strip())
+        elif line.upper().startswith("FILE"):
+            m = re.match(r'^FILE\s+["\']?(.*?)["\']?\s+\w+$', line, re.IGNORECASE)
+            if m:
+                target_file = m.group(1).strip()
+            else:
+                parts = line.split()
+                if len(parts) >= 2:
+                    target_file = unquote(parts[1])
+        elif line.upper().startswith("PERFORMER"):
+            p_val = unquote(line[9:].strip())
+            if current_track is None:
+                album_artist = p_val
+            else:
+                current_track["artist"] = p_val
+        elif line.upper().startswith("TITLE"):
+            t_val = unquote(line[5:].strip())
+            if current_track is None:
+                album_title = t_val
+            else:
+                current_track["title"] = t_val
+        elif re.match(r'^TRACK\s+(\d+)\s+AUDIO', line, re.IGNORECASE):
+            m = re.match(r'^TRACK\s+(\d+)\s+AUDIO', line, re.IGNORECASE)
+            if current_track:
+                tracks.append(current_track)
+            track_num = int(m.group(1))
+            current_track = {
+                "track_no": track_num,
+                "title": f"Track {track_num}",
+                "artist": "",
+                "start_time": 0.0,
+                "index00": None
+            }
+        elif current_track is not None:
+            if line.upper().startswith("INDEX 01"):
+                time_str = line[8:].strip()
+                current_track["start_time"] = parse_cue_time(time_str)
+            elif line.upper().startswith("INDEX 00"):
+                time_str = line[8:].strip()
+                current_track["index00"] = parse_cue_time(time_str)
+
+    if current_track:
+        tracks.append(current_track)
+
+    for idx, tr in enumerate(tracks):
+        if not tr["artist"]:
+            tr["artist"] = album_artist or "Unknown Artist"
+        if idx < len(tracks) - 1:
+            next_start = tracks[idx + 1]["start_time"]
+            tr["duration_sec"] = max(0.0, round(next_start - tr["start_time"], 2))
+            tr["end_time"] = next_start
+        else:
+            tr["duration_sec"] = 0.0
+            tr["end_time"] = 0.0
+
+    return {
+        "album_artist": album_artist,
+        "album_title": album_title,
+        "genre": genre,
+        "year": year,
+        "target_file": target_file,
+        "tracks": tracks
+    }
 
 class MusicDatabase:
     def __init__(self, db_file: Path = DB_PATH):
@@ -181,6 +330,10 @@ class MusicDatabase:
                     cover_url TEXT,
                     file_size INTEGER,
                     format TEXT,
+                    is_cue INTEGER DEFAULT 0,
+                    parent_file_id INTEGER DEFAULT 0,
+                    cue_start_time REAL DEFAULT 0.0,
+                    cue_end_time REAL DEFAULT 0.0,
                     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -193,7 +346,8 @@ class MusicDatabase:
                     cover_hash TEXT,
                     cover_url TEXT,
                     track_count INTEGER,
-                    total_duration REAL
+                    total_duration REAL,
+                    metadata_status TEXT DEFAULT 'cached'
                 );
 
                 CREATE TABLE IF NOT EXISTS artists (
@@ -221,6 +375,20 @@ class MusicDatabase:
                     key TEXT PRIMARY KEY,
                     val TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS track_lyrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    track_id INTEGER UNIQUE,
+                    artist TEXT,
+                    title TEXT,
+                    album TEXT,
+                    synced INTEGER DEFAULT 0,
+                    plain_lyrics TEXT,
+                    synced_lyrics TEXT,
+                    source TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_lyrics_artist_title ON track_lyrics(artist, title);
             """)
 
             # Schema Migrations
@@ -234,6 +402,18 @@ class MusicDatabase:
                     conn.execute("ALTER TABLE tracks ADD COLUMN cover_url TEXT;")
                 if "genre_locked" not in tracks_cols:
                     conn.execute("ALTER TABLE tracks ADD COLUMN genre_locked INTEGER DEFAULT 0;")
+                if "is_manual_genre" not in tracks_cols:
+                    conn.execute("ALTER TABLE tracks ADD COLUMN is_manual_genre INTEGER DEFAULT 0;")
+                if "metadata_status" not in tracks_cols:
+                    conn.execute("ALTER TABLE tracks ADD COLUMN metadata_status TEXT DEFAULT 'cached';")
+                if "is_cue" not in tracks_cols:
+                    conn.execute("ALTER TABLE tracks ADD COLUMN is_cue INTEGER DEFAULT 0;")
+                if "parent_file_id" not in tracks_cols:
+                    conn.execute("ALTER TABLE tracks ADD COLUMN parent_file_id INTEGER DEFAULT 0;")
+                if "cue_start_time" not in tracks_cols:
+                    conn.execute("ALTER TABLE tracks ADD COLUMN cue_start_time REAL DEFAULT 0.0;")
+                if "cue_end_time" not in tracks_cols:
+                    conn.execute("ALTER TABLE tracks ADD COLUMN cue_end_time REAL DEFAULT 0.0;")
             except Exception as e:
                 logger.debug(f"Tracks migration error: {e}")
 
@@ -241,15 +421,73 @@ class MusicDatabase:
                 albums_cols = [c[1] for c in conn.execute("PRAGMA table_info(albums)").fetchall()]
                 if "cover_url" not in albums_cols:
                     conn.execute("ALTER TABLE albums ADD COLUMN cover_url TEXT;")
+                if "genre_locked" not in albums_cols:
+                    conn.execute("ALTER TABLE albums ADD COLUMN genre_locked INTEGER DEFAULT 0;")
+                if "is_manual_genre" not in albums_cols:
+                    conn.execute("ALTER TABLE albums ADD COLUMN is_manual_genre INTEGER DEFAULT 0;")
+                if "metadata_status" not in albums_cols:
+                    conn.execute("ALTER TABLE albums ADD COLUMN metadata_status TEXT DEFAULT 'cached';")
             except Exception as e:
                 logger.debug(f"Albums migration error: {e}")
 
     def save_track(self, track_data: Dict[str, Any]):
         with self.get_conn() as conn:
+            fid = track_data.get("file_id")
+            existing = conn.execute("SELECT genre, is_manual_genre, genre_locked, cover_hash, cover_url FROM tracks WHERE file_id = ?", (fid,)).fetchone()
+            
+            raw_genre = track_data.get("genre")
+            incoming_genre = clean_genre(raw_genre)
+            
+            final_genre = incoming_genre
+            is_manual = track_data.get("is_manual_genre", 0)
+            genre_locked = track_data.get("genre_locked", 0)
+            
+            if existing:
+                ex_genre, ex_manual, ex_locked, ex_cov_h, ex_cov_u = existing
+                is_manual = max(is_manual, ex_manual or 0)
+                genre_locked = max(genre_locked, ex_locked or 0)
+                
+                # Protect valid or manually set genre
+                if is_manual or genre_locked or (ex_genre and ex_genre not in ('Разное', 'Other', 'Unknown', '')):
+                    if incoming_genre in ('Разное', 'Other', 'Unknown', '', None):
+                        final_genre = ex_genre
+                    elif is_manual or genre_locked:
+                        final_genre = ex_genre
+                    else:
+                        final_genre = incoming_genre
+
             conn.execute("""
-                INSERT OR REPLACE INTO tracks 
-                (file_id, drive_id, parent_id, filename, title, artist, album_artist, album, album_id, year, genre, track_no, duration_sec, bitrate, cover_hash, cover_url, file_size, format)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tracks 
+                (file_id, drive_id, parent_id, filename, title, artist, album_artist, album, album_id, year, genre, track_no, duration_sec, bitrate, cover_hash, cover_url, file_size, format, is_manual_genre, genre_locked, is_cue, parent_file_id, cue_start_time, cue_end_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(file_id) DO UPDATE SET
+                    drive_id=excluded.drive_id,
+                    parent_id=excluded.parent_id,
+                    filename=excluded.filename,
+                    title=excluded.title,
+                    artist=excluded.artist,
+                    album_artist=excluded.album_artist,
+                    album=excluded.album,
+                    album_id=excluded.album_id,
+                    year=excluded.year,
+                    genre=CASE 
+                        WHEN tracks.is_manual_genre = 1 OR tracks.genre_locked = 1 THEN tracks.genre
+                        WHEN tracks.genre IS NOT NULL AND tracks.genre NOT IN ('Разное', 'Other', 'Unknown', '') AND (excluded.genre IS NULL OR excluded.genre IN ('Разное', 'Other', 'Unknown', '')) THEN tracks.genre
+                        ELSE COALESCE(NULLIF(excluded.genre, 'Разное'), tracks.genre, 'Разное')
+                    END,
+                    is_manual_genre=MAX(tracks.is_manual_genre, excluded.is_manual_genre),
+                    genre_locked=MAX(tracks.genre_locked, excluded.genre_locked),
+                    track_no=excluded.track_no,
+                    duration_sec=excluded.duration_sec,
+                    bitrate=excluded.bitrate,
+                    cover_hash=COALESCE(NULLIF(excluded.cover_hash, ''), tracks.cover_hash),
+                    cover_url=COALESCE(NULLIF(excluded.cover_url, ''), tracks.cover_url),
+                    file_size=excluded.file_size,
+                    format=excluded.format,
+                    is_cue=excluded.is_cue,
+                    parent_file_id=excluded.parent_file_id,
+                    cue_start_time=excluded.cue_start_time,
+                    cue_end_time=excluded.cue_end_time
             """, (
                 track_data.get("file_id"),
                 track_data.get("drive_id"),
@@ -261,14 +499,20 @@ class MusicDatabase:
                 track_data.get("album"),
                 track_data.get("album_id"),
                 track_data.get("year"),
-                track_data.get("genre"),
+                final_genre or 'Разное',
                 track_data.get("track_no", 0),
                 track_data.get("duration_sec", 0.0),
                 track_data.get("bitrate", 0),
                 track_data.get("cover_hash"),
                 track_data.get("cover_url"),
                 track_data.get("file_size", 0),
-                track_data.get("format")
+                track_data.get("format"),
+                is_manual,
+                genre_locked,
+                1 if track_data.get("is_cue") else 0,
+                track_data.get("parent_file_id", 0),
+                track_data.get("cue_start_time", 0.0),
+                track_data.get("cue_end_time", 0.0)
             ))
 
     def recompute_aggregates(self):
@@ -276,17 +520,27 @@ class MusicDatabase:
             # Recompute Albums directly from tracks grouped strictly by album_id
             conn.execute("DELETE FROM albums;")
             conn.execute("""
-                INSERT OR REPLACE INTO albums (id, title, artist, year, genre, cover_hash, cover_url, track_count, total_duration)
+                INSERT OR REPLACE INTO albums (id, title, artist, year, genre, cover_hash, cover_url, track_count, total_duration, metadata_status, is_manual_genre, genre_locked)
                 SELECT 
                     album_id as id,
                     ifnull(nullif(trim(album), ''), 'Unknown Album') as title,
                     ifnull(nullif(trim(album_artist), ''), ifnull(nullif(trim(artist), ''), 'Unknown Artist')) as artist,
                     max(ifnull(year, '')) as year,
-                    max(ifnull(genre, 'Разное')) as genre,
+                    COALESCE(
+                        max(CASE WHEN genre NOT IN ('Разное', 'Other', 'Unknown', '') THEN genre ELSE NULL END),
+                        max(ifnull(genre, 'Разное')),
+                        'Разное'
+                    ) as genre,
                     max(ifnull(cover_hash, '')) as cover_hash,
                     max(ifnull(cover_url, '')) as cover_url,
                     count(*) as track_count,
-                    sum(ifnull(duration_sec, 0.0)) as total_duration
+                    sum(ifnull(duration_sec, 0.0)) as total_duration,
+                    case 
+                        when max(ifnull(cover_url, '')) != '' and max(ifnull(genre, 'Разное')) not in ('Разное', 'Other', 'Unknown', '') then 'cached'
+                        else 'pending'
+                    end as metadata_status,
+                    max(ifnull(is_manual_genre, 0)) as is_manual_genre,
+                    max(ifnull(genre_locked, 0)) as genre_locked
                 FROM tracks
                 WHERE album_id IS NOT NULL AND album_id != ''
                 GROUP BY album_id;
@@ -317,6 +571,11 @@ class MusicDatabase:
                 FROM tracks
                 GROUP BY 1;
             """)
+
+    def get_track(self, file_id: Any) -> Optional[Dict[str, Any]]:
+        with self.get_conn() as conn:
+            row = conn.execute("SELECT * FROM tracks WHERE file_id = ? OR CAST(file_id AS TEXT) = ?", (file_id, str(file_id))).fetchone()
+            return dict(row) if row else None
 
     def get_tracks(self, query: Optional[str] = None, artist: Optional[str] = None, album_id: Optional[str] = None, genre: Optional[str] = None) -> List[Dict[str, Any]]:
         with self.get_conn() as conn:
@@ -471,7 +730,7 @@ class OnlineMetadataEnricher:
         return None
 
     @classmethod
-    def fetch_from_itunes(cls, artist: str, album: str, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+    def fetch_from_itunes(cls, artist: str, album: str, timeout: float = 2.0) -> Optional[Dict[str, Any]]:
         if not HAVE_HTTPX:
             return None
         c_artist = cls.clean_search_term(artist)
@@ -488,7 +747,7 @@ class OnlineMetadataEnricher:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
         
-        timeout_cfg = httpx.Timeout(connect=5.0, read=5.0, write=5.0, pool=5.0)
+        timeout_cfg = httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=2.0)
 
         # Attempt 1: Query with country=RU and lang=ru_ru
         try:
@@ -596,7 +855,7 @@ class OnlineMetadataEnricher:
         return None
 
     @classmethod
-    def fetch_from_musicbrainz(cls, artist: str, album: str, timeout: float = 3.0) -> Optional[Dict[str, Any]]:
+    def fetch_from_musicbrainz(cls, artist: str, album: str, timeout: float = 2.0) -> Optional[Dict[str, Any]]:
         if not HAVE_HTTPX:
             return None
         c_artist = cls.clean_search_term(artist)
@@ -642,7 +901,7 @@ class OnlineMetadataEnricher:
         return None
 
     @classmethod
-    def download_cover_image(cls, artwork_url: str, album_hash: str, timeout: float = 3.0) -> Optional[str]:
+    def download_cover_image(cls, artwork_url: str, album_hash: str, timeout: float = 2.0) -> Optional[str]:
         if not artwork_url:
             return None
         if not HAVE_HTTPX:
@@ -655,12 +914,11 @@ class OnlineMetadataEnricher:
                 if r.status_code == 200 and len(r.content) > 500:
                     out_path = COVERS_DIR / f"{album_hash}.jpg"
                     out_path.write_bytes(r.content)
-                    print(f"[CrowMusic Online] ✓ Saved cover art ({len(r.content)} bytes) to: {out_path}")
+                    print(f"[CrowMusic Online] ✓ Saved cover art ({len(r.content)} bytes) to disk: {out_path}")
                     return f"/api/plugins/crow-music/cover/{album_hash}"
         except Exception as e:
             print(f"[CrowMusic Online] Cover download error (fallback to direct URL): {e}")
             logger.debug(f"[CrowMusic Online] Cover download error: {e}")
-        # Direct URL fallback if file download failed
         return artwork_url
 
     @classmethod
@@ -675,14 +933,14 @@ class OnlineMetadataEnricher:
         current_cover_hash = album.get("cover_hash", "")
         current_genre = album.get("genre", "Разное")
         current_year = album.get("year", "")
+        metadata_status = album.get("metadata_status", "cached")
 
         # 1. Sanity Check: Block online search for generic metadata ("Unknown Artist" / "Музыка")
         if is_generic_metadata(artist, title):
             print(f"[CrowMusic Online] 🚫 Skipped online search for generic metadata: Artist='{artist}', Title='{title}'")
-            # Clear any invalid remote cover that might have been accidentally saved previously
             if current_cover and (current_cover.startswith("http") or not current_cover.startswith("/api/download/")):
                 with db.get_conn() as conn:
-                    conn.execute("UPDATE tracks SET cover_hash = NULL, cover_url = NULL WHERE album_id = ?;", (album_id,))
+                    conn.execute("UPDATE tracks SET cover_hash = NULL, cover_url = NULL, metadata_status = 'cached' WHERE album_id = ?;", (album_id,))
                 db.recompute_aggregates()
                 album = db.get_album(album_id)
             return {"status": "skipped", "message": "Generic metadata - online search disabled", "album": album}
@@ -690,12 +948,15 @@ class OnlineMetadataEnricher:
         # 2. Check if album ALREADY has a local folder image file (Priority #1)
         has_local_cover = bool(current_cover and (current_cover.startswith("/api/download/") or (current_cover_hash and current_cover_hash.startswith("folder_file_"))))
 
-        # Local folder cover should NEVER be overwritten by network covers!
-        need_cover = not has_local_cover and (force or not current_cover)
-
         # 3. Check if album ALREADY has a valid genre
         has_valid_genre = bool(current_genre and current_genre not in ["Разное", "Other", "Unknown", "Unknown Genre", ""] and current_genre.lower() not in GARBAGE_GENRES)
-        # NEVER overwrite a valid genre from network searches!
+
+        # 4. If album is already cached/enriched and not forced: SKIP NETWORK SEARCH COMPLETELY
+        if not force and (has_local_cover or current_cover) and has_valid_genre:
+            return {"status": "cached", "message": "Album already has cached cover and genre", "album": album}
+
+        # Local folder cover should NEVER be overwritten by network covers!
+        need_cover = not has_local_cover and (force or not current_cover)
         need_genre = not has_valid_genre
         need_year = force or not current_year
 
@@ -704,12 +965,12 @@ class OnlineMetadataEnricher:
         if not (need_cover or need_genre or need_year):
             return {"status": "ok", "message": "Already enriched with valid metadata", "album": album}
 
-        # Query iTunes RU
-        info = cls.fetch_from_itunes(artist, title, timeout=5.0)
+        # Query iTunes RU (timeout 2.0s)
+        info = cls.fetch_from_itunes(artist, title, timeout=2.0)
 
-        # Fallback to MusicBrainz
+        # Fallback to MusicBrainz (timeout 2.0s)
         if not info or (not info.get("artwork_url") and need_cover) or (info.get("genre") in ["Разное", "", None] and need_genre):
-            mb_info = cls.fetch_from_musicbrainz(artist, title, timeout=3.0)
+            mb_info = cls.fetch_from_musicbrainz(artist, title, timeout=2.0)
             if mb_info:
                 if not info:
                     info = mb_info
@@ -733,7 +994,7 @@ class OnlineMetadataEnricher:
 
         # Only apply new cover if album did NOT already have a local folder image
         if need_cover and not has_local_cover and info.get("artwork_url"):
-            cached_url = cls.download_cover_image(info["artwork_url"], album_hash, timeout=3.0)
+            cached_url = cls.download_cover_image(info["artwork_url"], album_hash, timeout=2.0)
             if cached_url:
                 new_cover_url = cached_url
                 new_cover_hash = album_hash
@@ -747,11 +1008,9 @@ class OnlineMetadataEnricher:
             new_year = info["year"]
 
         print(f"[CrowMusic Online] Saving updates to SQLite: Genre='{new_genre}', Year='{new_year}', Cover='{new_cover_url}'")
-
-        # Update all tracks in DB: only update genre if track did not have genre_locked and current genre was empty/Разное
         with db.get_conn() as conn:
             conn.execute("""
-                UPDATE tracks
+                UPDATE tracks 
                 SET genre = CASE 
                         WHEN (genre_locked = 1) THEN genre
                         WHEN (? != '' AND ? NOT IN ('Разное', 'Other', 'Unknown', 'Unknown Genre') AND (genre IS NULL OR genre = '' OR genre IN ('Разное', 'Other', 'Unknown', 'Unknown Genre'))) THEN ? 
@@ -759,7 +1018,8 @@ class OnlineMetadataEnricher:
                     END,
                     year = CASE WHEN ? != '' AND (year IS NULL OR year = '' OR ? = 1) THEN ? ELSE year END,
                     cover_url = CASE WHEN ? != '' THEN ? ELSE cover_url END,
-                    cover_hash = CASE WHEN ? != '' THEN ? ELSE cover_hash END
+                    cover_hash = CASE WHEN ? != '' THEN ? ELSE cover_hash END,
+                    metadata_status = 'enriched'
                 WHERE album_id = ?;
             """, (new_genre, new_genre, new_genre, new_year, 1 if force else 0, new_year, new_cover_url, new_cover_url, new_cover_hash, new_cover_hash, album_id))
 
@@ -837,10 +1097,7 @@ class AudioScanner:
         drives = get_drives()
         scanned_count = 0
         new_count = 0
-
-        # Clear tracks table before fresh rescan to avoid orphaned/split IDs
-        with db.get_conn() as conn:
-            conn.execute("DELETE FROM tracks;")
+        all_scanned_file_ids = set()
 
         for drive in drives:
             drive_id = drive["id"]
@@ -849,8 +1106,9 @@ class AudioScanner:
             # Map folders by ID
             folder_map = {f["id"]: f["name"] for f in files if f.get("is_folder")}
 
-            # Map image files per folder (Priority #1: cover.jpg/png, folder.jpg/png, front.jpg/png, or any single image)
+            # Map image files and CUE sheet files per folder
             folder_images = {}
+            folder_cues: Dict[int, List[Dict[str, Any]]] = {}
             for f in files:
                 if not f.get("is_folder") and not f.get("in_trash"):
                     fname = (f.get("name") or "").lower()
@@ -863,6 +1121,9 @@ class AudioScanner:
                             folder_images[pid] = f["id"]
                         if fname in ["cover.png", "cover.jpg", "cover.webp", "folder.png", "folder.jpg", "front.png", "front.jpg", "albumart.jpg"]:
                             folder_images[pid] = f["id"]
+                    elif fext == ".cue" or fname.endswith(".cue"):
+                        pid = f.get("parent_id", 0)
+                        folder_cues.setdefault(pid, []).append(f)
 
             # Group audio files strictly by (drive_id, parent_id)
             folder_tracks: Dict[int, List[Dict[str, Any]]] = {}
@@ -877,6 +1138,7 @@ class AudioScanner:
 
                 if ext in AUDIO_EXTENSIONS:
                     scanned_count += 1
+                    all_scanned_file_ids.add(f["id"])
                     pid = f.get("parent_id", 0)
                     parent_name = folder_map.get(pid, "")
                     meta = parse_metadata_from_filename(f["name"], parent_name)
@@ -902,13 +1164,113 @@ class AudioScanner:
                         "cover_hash": None,
                         "cover_url": None,
                         "file_size": f.get("size", 0),
-                        "format": ext.replace(".", "").upper()
+                        "format": ext.replace(".", "").upper(),
+                        "is_cue": 0,
+                        "parent_file_id": 0,
+                        "cue_start_time": 0.0,
+                        "cue_end_time": 0.0
                     })
 
             # Hard Folder-First Aggregation: Exactly ONE album per directory
             for pid, tracks in folder_tracks.items():
                 folder_name = folder_map.get(pid, "Музыка" if pid == 0 else f"Папка {pid}")
                 folder_info = parse_folder_name(folder_name)
+                parent_name = folder_map.get(pid, "")
+
+                # CUE Virtual Track Slicing
+                if pid in folder_cues:
+                    for cue_f in folder_cues[pid]:
+                        cue_text = ""
+                        loc_path = cue_f.get("local_path")
+                        if loc_path and os.path.exists(loc_path):
+                            try:
+                                with open(loc_path, "rb") as cf:
+                                    cue_text = decode_cue_bytes(cf.read())
+                            except Exception as e:
+                                logger.debug(f"Error reading CUE file {loc_path}: {e}")
+                        elif cue_f.get("content"):
+                            cue_text = cue_f["content"]
+                        elif "id" in cue_f:
+                            try:
+                                from src.core.db import get_file_info
+                                fi = get_file_info(cue_f["id"])
+                                if fi and fi.get("local_path") and os.path.exists(fi["local_path"]):
+                                    with open(fi["local_path"], "rb") as cf:
+                                        cue_text = decode_cue_bytes(cf.read())
+                            except Exception:
+                                pass
+
+                        if cue_text:
+                            cue_meta = parse_cue_content(cue_text)
+                            if cue_meta["tracks"]:
+                                target_fn = (cue_meta["target_file"] or "").strip().lower()
+                                target_audio = None
+                                if target_fn:
+                                    target_audio = next((t for t in tracks if t["filename"].lower() == target_fn or Path(t["filename"]).stem.lower() == Path(target_fn).stem.lower()), None)
+                                if not target_audio:
+                                    cue_stem = Path(cue_f.get("name", "")).stem.lower()
+                                    target_audio = next((t for t in tracks if Path(t["filename"]).stem.lower() == cue_stem), None)
+                                if not target_audio and len(tracks) == 1:
+                                    target_audio = tracks[0]
+                                elif not target_audio and tracks:
+                                    target_audio = max(tracks, key=lambda t: t.get("file_size", 0))
+
+                                if target_audio:
+                                    parent_fid = target_audio["file_id"]
+                                    # Remove target_audio from tracks to prevent duplicate display of raw un-split image
+                                    tracks = [t for t in tracks if t["file_id"] != parent_fid]
+                                    all_scanned_file_ids.discard(parent_fid)
+
+                                    parent_dur = target_audio.get("duration_sec", 0.0)
+
+                                    for tr in cue_meta["tracks"]:
+                                        track_num = tr["track_no"]
+                                        virtual_fid = int(f"{parent_fid}0{track_num:03d}")
+                                        all_scanned_file_ids.add(virtual_fid)
+
+                                        dur = tr["duration_sec"]
+                                        if dur <= 0 and parent_dur > tr["start_time"]:
+                                            dur = max(0.0, round(parent_dur - tr["start_time"], 2))
+
+                                        tracks.append({
+                                            "file_id": virtual_fid,
+                                            "drive_id": drive_id,
+                                            "parent_id": pid,
+                                            "parent_name": parent_name,
+                                            "filename": f"{track_num:02d}. {tr['title']}.cue_track",
+                                            "title": tr["title"],
+                                            "artist": tr["artist"] or cue_meta["album_artist"] or "Unknown Artist",
+                                            "album_artist": cue_meta["album_artist"] or target_audio.get("album_artist", ""),
+                                            "album": cue_meta["album_title"] or target_audio.get("album", folder_name),
+                                            "year": cue_meta["year"] or target_audio.get("year", folder_info["year"]),
+                                            "genre": clean_genre(cue_meta["genre"]) if cue_meta["genre"] else target_audio.get("genre", "Разное"),
+                                            "track_no": track_num,
+                                            "duration_sec": dur,
+                                            "bitrate": target_audio.get("bitrate", 320),
+                                            "cover_hash": None,
+                                            "cover_url": None,
+                                            "file_size": target_audio.get("file_size", 0),
+                                            "format": target_audio.get("format", "FLAC"),
+                                            "is_cue": 1,
+                                            "parent_file_id": parent_fid,
+                                            "cue_start_time": tr["start_time"],
+                                            "cue_end_time": tr.get("end_time", 0.0)
+                                        })
+
+                # Fetch existing tracks in DB for this folder to preserve manual tags, custom genre & cover
+                existing_genres = []
+                existing_covers = []
+                with db.get_conn() as conn:
+                    if pid > 0:
+                        rows = conn.execute("SELECT genre, is_manual_genre, genre_locked, cover_url, cover_hash FROM tracks WHERE parent_id = ?", (pid,)).fetchall()
+                    else:
+                        rows = conn.execute("SELECT genre, is_manual_genre, genre_locked, cover_url, cover_hash FROM tracks WHERE drive_id = ? AND parent_id = 0", (drive_id,)).fetchall()
+                    for r in rows:
+                        g, man, lk, cu, ch = r[0], r[1], r[2], r[3], r[4]
+                        if man or lk or (g and g not in ('Разное', 'Other', 'Unknown', '')):
+                            existing_genres.append(g)
+                        if cu:
+                            existing_covers.append((cu, ch))
 
                 # 1. Unified Album Title
                 non_generic = [t["album"] for t in tracks if t.get("album") and t["album"] not in ["Single / Collection", "Unknown Album", "Музыка"]]
@@ -932,16 +1294,19 @@ class AudioScanner:
                 if not unified_year:
                     unified_year = next((t["year"] for t in tracks if t.get("year")), "")
 
-                # 4. Unified Genre
-                valid_genres = [t["genre"] for t in tracks if t.get("genre") and t["genre"] != "Разное"]
-                unified_genre = Counter(valid_genres).most_common(1)[0][0] if valid_genres else "Разное"
+                # 4. Unified Genre: prefer manually set or existing valid genre in DB
+                if existing_genres:
+                    unified_genre = Counter(existing_genres).most_common(1)[0][0]
+                else:
+                    valid_genres = [t["genre"] for t in tracks if t.get("genre") and t["genre"] not in ["Разное", "Other", "Unknown", ""]]
+                    unified_genre = Counter(valid_genres).most_common(1)[0][0] if valid_genres else "Разное"
 
                 # 5. Strict Album ID: exactly 1 album ID for this directory
                 if pid > 0:
                     album_id = f"d{drive_id}_f{pid}"
                 else:
-                    clean_title = re.sub(r'[^a-zA-Z0-9_\u0400-\u04FF]', '_', unified_album.lower())
-                    album_id = f"d{drive_id}_root_{clean_title}"
+                    clean_title_str = re.sub(r'[^a-zA-Z0-9_\u0400-\u04FF]', '_', unified_album.lower())
+                    album_id = f"d{drive_id}_root_{clean_title_str}"
 
                 # 6. Resolve Cover Art (Priority #1: Local folder image)
                 cover_hash = None
@@ -950,6 +1315,8 @@ class AudioScanner:
                     img_id = folder_images[pid]
                     cover_hash = f"folder_file_{img_id}"
                     cover_url = f"/api/download/{img_id}"
+                elif existing_covers:
+                    cover_url, cover_hash = existing_covers[0]
 
                 # 7. Save all tracks with unified album metadata
                 for t in tracks:
@@ -964,18 +1331,13 @@ class AudioScanner:
                     db.save_track(t)
                     new_count += 1
 
+        # Delete only orphaned tracks physically removed from drives
+        if all_scanned_file_ids:
+            with db.get_conn() as conn:
+                placeholders = ",".join("?" for _ in all_scanned_file_ids)
+                conn.execute(f"DELETE FROM tracks WHERE file_id NOT IN ({placeholders});", list(all_scanned_file_ids))
+
         db.recompute_aggregates()
-
-        # Step 2: Auto-Enrich Missing Metadata from online sources ONLY for valid non-generic albums
-        try:
-            albums = db.get_albums()
-            for a in albums:
-                if not is_generic_metadata(a.get("artist"), a.get("title")):
-                    if not a.get("cover_url") or a.get("genre") == "Разное" or not a.get("year"):
-                        OnlineMetadataEnricher.enrich_album(a["id"], force=False)
-        except Exception as e:
-            logger.debug(f"[CrowMusic] Auto-enrich error: {e}")
-
         db.set_meta("last_scanned", time.strftime("%Y-%m-%d %H:%M:%S"))
         return {
             "status": "success",
@@ -996,8 +1358,12 @@ async def api_music_scan():
 
 @router.get("/status")
 async def api_music_status():
-    """Get current music library stats."""
-    return JSONResponse(content=db.get_stats())
+    """Return database statistics and scanning status."""
+    return JSONResponse(content={
+        "status": "ready",
+        "stats": db.get_stats(),
+        "last_scanned": db.get_meta("last_scanned")
+    })
 
 @router.get("/library")
 async def api_music_library():
@@ -1112,7 +1478,18 @@ async def api_music_cover(cover_hash: str):
     with db.get_conn() as conn:
         row = conn.execute("SELECT cover_url FROM tracks WHERE cover_hash = ? AND cover_url LIKE 'http%' LIMIT 1", (cover_hash,)).fetchone()
         if row and row["cover_url"]:
-            return RedirectResponse(url=row["cover_url"])
+            remote_url = row["cover_url"]
+            try:
+                if HAVE_HTTPX:
+                    timeout_cfg = httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=2.0)
+                    with httpx.Client(timeout=timeout_cfg, trust_env=False, follow_redirects=True) as client:
+                        r = client.get(remote_url)
+                        if r.status_code == 200 and len(r.content) > 500:
+                            cover_file.write_bytes(r.content)
+                            return FileResponse(cover_file, media_type="image/jpeg")
+            except Exception as e:
+                logger.debug(f"Cover download on-demand error: {e}")
+            return RedirectResponse(url=remote_url)
 
     icon_file = PLUGIN_DIR / "icon.svg"
     if icon_file.exists():
@@ -1122,7 +1499,11 @@ async def api_music_cover(cover_hash: str):
 
 @router.get("/stream/{file_id}")
 async def api_music_stream(file_id: int):
-    """Proxy stream through core CrowGram range streamer."""
+    """Proxy stream through core CrowGram range streamer (transparently resolving CUE parent file)."""
+    with db.get_conn() as conn:
+        row = conn.execute("SELECT is_cue, parent_file_id FROM tracks WHERE file_id = ? OR CAST(file_id AS TEXT) = ?", (file_id, str(file_id))).fetchone()
+        if row and row["is_cue"] and row["parent_file_id"]:
+            return RedirectResponse(url=f"/api/stream/{row['parent_file_id']}")
     return RedirectResponse(url=f"/api/stream/{file_id}")
 
 @router.post("/tags/update")
@@ -1199,7 +1580,7 @@ async def api_music_tags_update(payload: Dict[str, Any] = Body(...)):
                 UPDATE tracks
                 SET title = ?, artist = ?, album_artist = ?, album = ?, album_id = ?, 
                     year = ?, genre = ?, track_no = ?, cover_hash = ?, cover_url = ?,
-                    genre_locked = 1
+                    genre_locked = 1, is_manual_genre = 1
                 WHERE file_id = ?
             """, (title, artist, album_artist, album, album_id, year, genre, track_no, cover_h, cover_u, file_id))
 
@@ -1291,4 +1672,310 @@ async def api_music_tags_autofix(payload: Dict[str, Any] = Body(...)):
         "tracks": autofixed_tracks,
         "stats": db.get_stats()
     })
+
+def fetch_lyrics_from_lrclib(artist: str, title: str, album: str = "", duration: float = 0.0) -> Optional[Dict[str, Any]]:
+    """Fetch synced (LRC) or plain lyrics from open LRCLIB API using 3-stage cascaded search."""
+    if not artist or not title:
+        return None
+        
+    clean_art = re.sub(r"\s*[\(\[\{].*?[\)\]\}]", "", artist).strip() or artist.strip()
+    clean_tit = clean_title(title)
+    clean_alb = clean_album(album)
+    
+    headers = {
+        "User-Agent": "CrowGram-Music/2.0 (CrowGram Cloud Desktop; https://github.com/SlowCrow666/CrowGram)",
+        "Accept": "application/json"
+    }
+
+    # ==========================================================
+    # Stage 1: Strict Match (artist + clean_title + clean_album + duration)
+    # ==========================================================
+    try:
+        params = {
+            "artist_name": clean_art,
+            "track_name": clean_tit,
+        }
+        if clean_alb:
+            params["album_name"] = clean_alb
+        if duration and duration > 10:
+            params["duration"] = int(duration)
+            
+        url = f"https://lrclib.net/api/get?{urllib.parse.urlencode(params)}"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=4.0) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                synced = data.get("syncedLyrics") or ""
+                plain = data.get("plainLyrics") or ""
+                if synced or plain:
+                    return {
+                        "synced": bool(synced),
+                        "plain_lyrics": plain,
+                        "synced_lyrics": synced,
+                        "source": "lrclib"
+                    }
+    except Exception as e:
+        logger.debug(f"LRCLIB Stage 1 (Strict) failed: {e}")
+
+    # ==========================================================
+    # Stage 2: Fallback Exact Match (artist + clean_title only)
+    # ==========================================================
+    try:
+        params2 = {
+            "artist_name": clean_art,
+            "track_name": clean_tit,
+        }
+        url2 = f"https://lrclib.net/api/get?{urllib.parse.urlencode(params2)}"
+        req2 = urllib.request.Request(url2, headers=headers)
+        with urllib.request.urlopen(req2, timeout=4.0) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                synced = data.get("syncedLyrics") or ""
+                plain = data.get("plainLyrics") or ""
+                if synced or plain:
+                    return {
+                        "synced": bool(synced),
+                        "plain_lyrics": plain,
+                        "synced_lyrics": synced,
+                        "source": "lrclib"
+                    }
+    except Exception as e:
+        logger.debug(f"LRCLIB Stage 2 (Fallback) failed: {e}")
+
+    # ==========================================================
+    # Stage 3: Fuzzy Search Query (search?q=artist+clean_title)
+    # ==========================================================
+    try:
+        q_str = f"{clean_art} {clean_tit}".strip()
+        url3 = f"https://lrclib.net/api/search?q={urllib.parse.quote(q_str)}"
+        req3 = urllib.request.Request(url3, headers=headers)
+        with urllib.request.urlopen(req3, timeout=4.0) as resp:
+            if resp.status == 200:
+                results = json.loads(resp.read().decode("utf-8"))
+                if isinstance(results, list) and results:
+                    # Prioritize item with synced lyrics
+                    best = None
+                    for r in results:
+                        if r.get("syncedLyrics"):
+                            best = r
+                            break
+                    if not best:
+                        best = results[0]
+                    synced = best.get("syncedLyrics") or ""
+                    plain = best.get("plainLyrics") or ""
+                    if synced or plain:
+                        return {
+                            "synced": bool(synced),
+                            "plain_lyrics": plain,
+                            "synced_lyrics": synced,
+                            "source": "lrclib"
+                        }
+    except Exception as e:
+        logger.debug(f"LRCLIB Stage 3 (Fuzzy Search) failed: {e}")
+
+    return None
+
+@router.get("/lyrics")
+async def api_music_get_lyrics(
+    track_id: Optional[str] = None,
+    artist: Optional[str] = None,
+    title: Optional[str] = None,
+    album: Optional[str] = None,
+    duration: Optional[float] = None
+):
+    """Retrieve synchronized (LRC) or plain lyrics for a track with multi-tier caching (Disk -> SQLite -> Local File -> LRCLIB)."""
+    cur_artist = (artist or "").strip()
+    cur_title = (title or "").strip()
+    cur_album = (album or "").strip()
+    cur_duration = duration or 0.0
+    parent_id = 0
+    filename = ""
+
+    if track_id:
+        with db.get_conn() as conn:
+            row = conn.execute("SELECT * FROM tracks WHERE file_id = ? OR CAST(file_id AS TEXT) = ?", (track_id, track_id)).fetchone()
+            if row:
+                t = dict(row)
+                if not cur_artist: cur_artist = t.get("artist", "")
+                if not cur_title: cur_title = t.get("title", "")
+                if not cur_album: cur_album = t.get("album", "")
+                if not cur_duration: cur_duration = t.get("duration_sec", 0.0)
+                parent_id = t.get("parent_id", 0)
+                filename = t.get("filename", "")
+
+    clean_art = re.sub(r"\s*[\(\[\{].*?[\)\]\}]", "", cur_artist).strip() or cur_artist.strip()
+    clean_tit = clean_title(cur_title)
+    clean_alb = clean_album(cur_album)
+    track_hash = hashlib.md5(f"{clean_art.lower()}_{clean_tit.lower()}".encode("utf-8")).hexdigest()
+    disk_cache_file = LYRICS_CACHE_DIR / f"{track_hash}.json"
+
+    # 1. Tier 1: Check SQLite Cache
+    with db.get_conn() as conn:
+        cached = conn.execute(
+            "SELECT * FROM track_lyrics WHERE track_id = ? OR (artist = ? AND title = ?) OR (artist = ? AND title = ?)", 
+            (track_id, cur_artist, cur_title, clean_art, clean_tit)
+        ).fetchone()
+        if cached:
+            c = dict(cached)
+            return JSONResponse(content={
+                "status": "ok",
+                "synced": bool(c.get("synced")),
+                "plain_lyrics": c.get("plain_lyrics") or "",
+                "synced_lyrics": c.get("synced_lyrics") or "",
+                "source": c.get("source") or "cache"
+            })
+
+    # 2. Tier 2: Check Disk Cache File (.cache/crow-music/lyrics/{track_hash}.json)
+    if disk_cache_file.is_file():
+        try:
+            cached_disk = json.loads(disk_cache_file.read_text(encoding="utf-8"))
+            if cached_disk and (cached_disk.get("plain_lyrics") or cached_disk.get("synced_lyrics")):
+                # Mirror to SQLite for fast query next time
+                with db.get_conn() as conn:
+                    conn.execute("""
+                        INSERT OR REPLACE INTO track_lyrics (track_id, artist, title, album, synced, plain_lyrics, synced_lyrics, source)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        track_id, 
+                        cur_artist, 
+                        cur_title, 
+                        cur_album, 
+                        1 if cached_disk.get("synced") else 0, 
+                        cached_disk.get("plain_lyrics", ""), 
+                        cached_disk.get("synced_lyrics", ""), 
+                        cached_disk.get("source", "disk_cache")
+                    ))
+                return JSONResponse(content={
+                    "status": "ok",
+                    "synced": bool(cached_disk.get("synced")),
+                    "plain_lyrics": cached_disk.get("plain_lyrics") or "",
+                    "synced_lyrics": cached_disk.get("synced_lyrics") or "",
+                    "source": cached_disk.get("source") or "disk_cache"
+                })
+        except Exception as e:
+            logger.debug(f"Disk lyrics cache read error: {e}")
+
+    # 3. Tier 3: Check local directory for .lrc or .txt files
+    if track_id and (parent_id or filename):
+        try:
+            from src.core.db import get_files_in_folder
+            files = get_files_in_folder(parent_id) if parent_id else []
+            base_name = Path(filename).stem.lower() if filename else ""
+            
+            for f in files:
+                fname = f.get("name", "")
+                f_stem = Path(fname).stem.lower()
+                f_ext = Path(fname).suffix.lower()
+                if f_ext in [".lrc", ".txt"] and (f_stem == base_name or "lyrics" in f_stem or (cur_title and f_stem == cur_title.lower()) or (clean_tit and f_stem == clean_tit.lower())):
+                    fid = f.get("id")
+                    if fid:
+                        from src.core.db import get_file_by_id
+                        f_info = get_file_by_id(fid)
+                        local_path = f_info.get("local_path") if f_info else None
+                        if local_path and os.path.exists(local_path):
+                            with open(local_path, "r", encoding="utf-8", errors="ignore") as lf:
+                                content = lf.read()
+                                is_synced = bool(re.search(r"\[\d{1,2}:\d{2}", content))
+                                res_payload = {
+                                    "status": "ok",
+                                    "synced": is_synced,
+                                    "plain_lyrics": content if not is_synced else "",
+                                    "synced_lyrics": content if is_synced else "",
+                                    "source": "local"
+                                }
+                                # Save to Disk Cache & SQLite
+                                disk_cache_file.write_text(json.dumps(res_payload), encoding="utf-8")
+                                with db.get_conn() as conn:
+                                    conn.execute("""
+                                        INSERT OR REPLACE INTO track_lyrics (track_id, artist, title, album, synced, plain_lyrics, synced_lyrics, source)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    """, (track_id, cur_artist, cur_title, cur_album, 1 if is_synced else 0, content if not is_synced else "", content if is_synced else "", "local"))
+                                return JSONResponse(content=res_payload)
+        except Exception as e:
+            logger.debug(f"Local lyrics search error: {e}")
+
+    # 4. Tier 4: Online Search via LRCLIB 3-Stage Cascaded API
+    if cur_artist and cur_title:
+        lrclib_res = fetch_lyrics_from_lrclib(cur_artist, cur_title, cur_album, cur_duration)
+        if lrclib_res:
+            res_payload = {
+                "status": "ok",
+                "synced": lrclib_res.get("synced", False),
+                "plain_lyrics": lrclib_res.get("plain_lyrics", ""),
+                "synced_lyrics": lrclib_res.get("synced_lyrics", ""),
+                "source": "lrclib"
+            }
+            # Save to Disk Cache
+            try:
+                disk_cache_file.write_text(json.dumps(res_payload), encoding="utf-8")
+            except Exception as e:
+                logger.debug(f"Disk lyrics cache write error: {e}")
+
+            # Save to SQLite
+            with db.get_conn() as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO track_lyrics (track_id, artist, title, album, synced, plain_lyrics, synced_lyrics, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    track_id, 
+                    cur_artist, 
+                    cur_title, 
+                    cur_album, 
+                    1 if lrclib_res.get("synced") else 0, 
+                    lrclib_res.get("plain_lyrics", ""), 
+                    lrclib_res.get("synced_lyrics", ""), 
+                    "lrclib"
+                ))
+            return JSONResponse(content=res_payload)
+
+    return JSONResponse(content={
+        "status": "ok",
+        "synced": False,
+        "plain_lyrics": "",
+        "synced_lyrics": "",
+        "source": "none"
+    })
+
+@router.post("/lyrics")
+async def api_music_save_lyrics(payload: Dict[str, Any] = Body(...)):
+    """Save user-provided plain or synced LRC lyrics into Disk Cache and SQLite."""
+    track_id = payload.get("track_id")
+    artist = (payload.get("artist") or "").strip()
+    title = (payload.get("title") or "").strip()
+    album = (payload.get("album") or "").strip()
+    plain_lyrics = (payload.get("plain_lyrics") or "").strip()
+    synced_lyrics = (payload.get("synced_lyrics") or "").strip()
+    is_synced = bool(synced_lyrics)
+
+    clean_art = re.sub(r"\s*[\(\[\{].*?[\)\]\}]", "", artist).strip() or artist.strip()
+    clean_tit = clean_title(title)
+    track_hash = hashlib.md5(f"{clean_art.lower()}_{clean_tit.lower()}".encode("utf-8")).hexdigest()
+    disk_cache_file = LYRICS_CACHE_DIR / f"{track_hash}.json"
+
+    res_payload = {
+        "status": "ok",
+        "synced": is_synced,
+        "plain_lyrics": plain_lyrics,
+        "synced_lyrics": synced_lyrics,
+        "source": "custom"
+    }
+
+    try:
+        disk_cache_file.write_text(json.dumps(res_payload), encoding="utf-8")
+    except Exception as e:
+        logger.debug(f"Disk lyrics cache write error: {e}")
+
+    with db.get_conn() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO track_lyrics (track_id, artist, title, album, synced, plain_lyrics, synced_lyrics, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'custom')
+        """, (track_id, artist, title, album, 1 if is_synced else 0, plain_lyrics, synced_lyrics))
+
+    return JSONResponse(content={
+        "status": "ok",
+        "saved": True,
+        "synced": is_synced,
+        "source": "custom"
+    })
+
 

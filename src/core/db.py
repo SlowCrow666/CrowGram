@@ -214,6 +214,40 @@ def add_folder_record(name, parent_id, drive_id=1):
         conn.commit()
         return c.lastrowid
 
+def get_or_create_folder_path(rel_path: str, root_parent_id: int = 0, drive_id: int = 1) -> int:
+    """Resolve or create nested folder hierarchy given a relative directory path.
+    e.g. 'LTSC-Add-MicrosoftStore-master/subfolder' -> returns ID of 'subfolder'.
+    """
+    if not rel_path:
+        return root_parent_id
+        
+    clean_path = str(rel_path).replace("\\", "/").strip("/")
+    if not clean_path:
+        return root_parent_id
+        
+    parts = [p.strip() for p in clean_path.split("/") if p.strip() and p.strip() != "."]
+    current_parent_id = int(root_parent_id) if root_parent_id else 0
+    
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        for part in parts:
+            c.execute(
+                "SELECT id FROM folders WHERE name = ? AND parent_id = ? AND drive_id = ? AND in_trash = 0",
+                (part, current_parent_id, drive_id)
+            )
+            row = c.fetchone()
+            if row:
+                current_parent_id = row["id"]
+            else:
+                c.execute(
+                    "INSERT INTO folders (name, parent_id, drive_id) VALUES (?, ?, ?)",
+                    (part, current_parent_id, drive_id)
+                )
+                conn.commit()
+                current_parent_id = c.lastrowid
+                
+    return current_parent_id
+
 def add_chunk_record(file_id, chunk_index, message_id, chunk_size, sha256):
     with get_db_connection() as conn:
         c = conn.cursor()
@@ -250,18 +284,23 @@ def list_trash_db():
             
         return items
 
-def get_file_info(file_id):
+def get_file_info(file_id, is_folder=None):
     with get_db_connection() as conn:
         c = conn.cursor()
+        if is_folder is True:
+            c.execute("SELECT * FROM folders WHERE id = ?", (file_id,))
+            row = c.fetchone()
+            return {**dict(row), "is_folder": True, "size": 0} if row else None
+            
         c.execute("SELECT * FROM files WHERE id = ?", (file_id,))
         row = c.fetchone()
-        if not row:
+        if not row and is_folder is not False:
             c.execute("SELECT * FROM folders WHERE id = ?", (file_id,))
             row = c.fetchone()
             if row:
                 return {**dict(row), "is_folder": True, "size": 0}
             return None
-        return {**dict(row), "is_folder": False}
+        return {**dict(row), "is_folder": False} if row else None
 
 def get_file_chunks(file_id):
     with get_db_connection() as conn:
