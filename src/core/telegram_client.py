@@ -88,8 +88,25 @@ class TelegramManager:
                     logger.debug(f"Disconnect error on cleanup: {e}")
                 self.app = None
 
-            logger.info(f"Initializing Pyrogram client with api_id={clean_id}")
-            self.app = Client(self.session_name, api_id=clean_id, api_hash=clean_hash, workdir=str(BASE_DIR))
+            # Clean up stale temp or journal files
+            for stale_f in BASE_DIR.glob("*temp*.session*"):
+                try: stale_f.unlink()
+                except Exception: pass
+            for stale_f in BASE_DIR.glob("*.session-journal"):
+                try: stale_f.unlink()
+                except Exception: pass
+
+            logger.info(f"Initializing Pyrogram client with api_id={clean_id} (Telegram Desktop 5.4.1 x64 emulation)")
+            self.app = Client(
+                name=self.session_name,
+                api_id=clean_id,
+                api_hash=clean_hash,
+                device_model="Desktop",
+                app_version="5.4.1 x64",
+                system_version="Windows 10",
+                lang_code="ru",
+                workdir=str(BASE_DIR)
+            )
             self._current_id = clean_id
 
             for attempt in range(5):
