@@ -120,11 +120,11 @@
                             this.currentPhone = phone;
                             this.phoneCodeHash = data.phone_code_hash;
                             window._tg_code_hash = data.phone_code_hash;
-                            window._tg_phone = phone;
-
-                            document.getElementById('wizardAuthPhoneBox').style.display = 'none';
-                            document.getElementById('wizardAuthCodeBox').style.display = 'block';
-                            this.showMsg('wizardStep3Msg', window.t('settings.codePrompt'), 'info');
+                            const phoneBox = document.getElementById('wizardAuthPhoneBox');
+                            if (phoneBox) phoneBox.style.display = 'none';
+                            const codeBox = document.getElementById('wizardAuthCodeBox');
+                            if (codeBox) codeBox.style.display = 'block';
+                            this.showMsg('wizardStep3Msg', window.t('settings.codePrompt') || '📩 Код отправлен в Telegram. Введите его:', 'info');
                             setTimeout(() => document.getElementById('wizardCodeInput')?.focus(), 100);
                         } else {
                             this.showMsg('wizardStep3Msg', data.detail || 'Ошибка отправки кода', 'error');
@@ -409,18 +409,30 @@
         }
 
         onAuthSuccess(user) {
-            document.getElementById('wizardAuthCodeBox').style.display = 'none';
-            document.getElementById('wizardAuth2faBox').style.display = 'none';
-            document.getElementById('wizardAuthPhoneBox').style.display = 'none';
+            const codeBox = document.getElementById('wizardAuthCodeBox');
+            if (codeBox) codeBox.style.display = 'none';
+
+            const box2fa = document.getElementById('step3-2fa-container') || document.getElementById('wizardAuth2faBox');
+            if (box2fa) box2fa.style.display = 'none';
+
+            const phoneBox = document.getElementById('wizardAuthPhoneBox');
+            if (phoneBox) phoneBox.style.display = 'none';
             
             const successBox = document.getElementById('wizardAuthSuccessBox');
             if (successBox) {
                 successBox.style.display = 'block';
                 const name = user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : 'Telegram User';
-                document.getElementById('wizardAuthUserName').textContent = name;
+                const userNameEl = document.getElementById('wizardAuthUserName');
+                if (userNameEl) userNameEl.textContent = name;
             }
-            this.showMsg('wizardStep3Msg', '✓ ' + window.t('settings.statusAuthorized'), 'success');
-            setTimeout(() => this.goToStep(4), 1000);
+            this.showMsg('wizardStep3Msg', '✓ ' + (window.t('settings.statusAuthorized') || 'Авторизован'), 'success');
+
+            // Enable next buttons if previously disabled
+            document.querySelectorAll('#wizardStepBody3 [data-wizard-next]').forEach(btn => {
+                btn.disabled = false;
+            });
+
+            setTimeout(() => this.goToStep(4), 800);
         }
 
         showMsg(targetId, text, type = 'info') {
@@ -445,9 +457,12 @@
                 const res = await fetch('/api/config');
                 if (res.ok) {
                     const cfg = await res.json();
-                    if (cfg.api_id) document.getElementById('wizardApiId').value = cfg.api_id;
-                    if (cfg.api_hash) document.getElementById('wizardApiHash').value = cfg.api_hash;
-                    if (cfg.phone) document.getElementById('wizardPhoneInput').value = cfg.phone;
+                    const apiIdEl = document.getElementById('wizardApiId');
+                    if (apiIdEl && cfg.api_id) apiIdEl.value = cfg.api_id;
+                    const apiHashEl = document.getElementById('wizardApiHash');
+                    if (apiHashEl && cfg.api_hash) apiHashEl.value = cfg.api_hash;
+                    const phoneEl = document.getElementById('wizardPhoneInput');
+                    if (phoneEl && cfg.phone) phoneEl.value = cfg.phone;
                     if (cfg.is_authorized) {
                         this.onAuthSuccess(cfg.tg_user);
                     }
