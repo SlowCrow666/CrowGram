@@ -182,29 +182,50 @@
 
             // Step 3: 2FA Password
             const submit2faBtn = document.getElementById('wizardSubmit2faBtn');
-            if (submit2faBtn) {
-                submit2faBtn.onclick = async () => {
-                    const password = document.getElementById('wizard2faInput').value;
-                    if (!password) return;
+            const wizard2faInput = document.getElementById('wizard2faInput');
 
+            const handle2faSubmit = async () => {
+                const password = wizard2faInput ? wizard2faInput.value : '';
+                if (!password) {
+                    this.showMsg('wizardStep3Msg', 'Введите облачный пароль 2FA', 'error');
+                    return;
+                }
+
+                if (submit2faBtn) {
                     submit2faBtn.disabled = true;
-                    this.showMsg('wizardStep3Msg', '⏳ Проверка пароля 2FA...', 'info');
-                    try {
-                        const res = await fetch('/api/auth/password', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ password: password })
-                        });
-                        const data = await res.json();
-                        if (res.ok && (data.status === 'ok' || data.status === 'success' || data.status === 'authorized')) {
-                            this.onAuthSuccess(data.user);
-                        } else {
-                            this.showMsg('wizardStep3Msg', data.detail || 'Неверный 2FA пароль', 'error');
-                        }
-                    } catch (e) {
-                        this.showMsg('wizardStep3Msg', e.message, 'error');
-                    } finally {
+                    submit2faBtn.textContent = '⏳ ...';
+                }
+                this.showMsg('wizardStep3Msg', '⏳ Проверка облачного пароля (2FA)...', 'info');
+                try {
+                    const res = await fetch('/api/auth/verify_password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password: password })
+                    });
+                    const data = await res.json();
+                    if (res.ok && (data.status === 'ok' || data.status === 'success' || data.status === 'authorized')) {
+                        this.onAuthSuccess(data.user);
+                    } else {
+                        this.showMsg('wizardStep3Msg', data.detail || 'Неверный облачный пароль', 'error');
+                    }
+                } catch (e) {
+                    this.showMsg('wizardStep3Msg', e.message, 'error');
+                } finally {
+                    if (submit2faBtn) {
                         submit2faBtn.disabled = false;
+                        submit2faBtn.textContent = window.t('settings.submit2faBtn') || 'ПОДТВЕРДИТЬ';
+                    }
+                }
+            };
+
+            if (submit2faBtn) {
+                submit2faBtn.onclick = handle2faSubmit;
+            }
+            if (wizard2faInput) {
+                wizard2faInput.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handle2faSubmit();
                     }
                 };
             }

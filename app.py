@@ -594,7 +594,9 @@ async def api_verify_code(request: Request):
 
     return await process_auth_verify(code=code, phone=phone, phone_code_hash=phone_code_hash)
 
+@app.post("/api/auth/verify_password")
 @app.post("/api/auth/password")
+@app.post("/api/auth/check-password")
 async def api_check_password(request: Request):
     password = None
     content_type = request.headers.get("content-type", "")
@@ -620,6 +622,10 @@ async def api_check_password(request: Request):
         logger.info(f"2FA Password accepted for user: {user_info}")
         return {"status": "ok", "user": user_info, "authorized": True}
     except Exception as e:
+        err_type = type(e).__name__
+        err_str = str(e)
+        if "PASSWORD_HASH_INVALID" in err_str or err_type == "PasswordHashInvalid":
+            raise HTTPException(status_code=400, detail="Неверный облачный пароль")
         msg = format_tg_error(e)
         logger.error(f"api_check_password error: {msg} (raw: {e})")
         raise HTTPException(status_code=400, detail=msg)

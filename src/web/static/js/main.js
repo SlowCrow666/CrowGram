@@ -1399,17 +1399,19 @@ function bindModalEvents() {
     });
 
     // Ввод 2FA пароля
-    document.getElementById('tgSubmit2faBtn')?.addEventListener('click', async () => {
-        const btn = document.getElementById('tgSubmit2faBtn');
-        const password = document.getElementById('tg2faPasswordInput').value;
+    const tgSubmit2faBtn = document.getElementById('tgSubmit2faBtn');
+    const tg2faPasswordInput = document.getElementById('tg2faPasswordInput');
+
+    const handleSettings2faSubmit = async () => {
+        const password = tg2faPasswordInput ? tg2faPasswordInput.value : '';
         if (!password) {
             showTgAuthMsg('Введите 2FA пароль', 'error');
             return;
         }
-        if (btn) { btn.disabled = true; btn.textContent = 'ПРОВЕРКА...'; }
+        if (tgSubmit2faBtn) { tgSubmit2faBtn.disabled = true; tgSubmit2faBtn.textContent = 'ПРОВЕРКА...'; }
         showTgAuthMsg('Проверка пароля 2FA...', 'info');
         try {
-            const res = await fetch('/api/auth/password', {
+            const res = await fetch('/api/auth/verify_password', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: password })
@@ -1425,7 +1427,15 @@ function bindModalEvents() {
         } catch (err) {
             showTgAuthMsg('Ошибка: ' + err.message, 'error');
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = 'ПОДТВЕРДИТЬ'; }
+            if (tgSubmit2faBtn) { tgSubmit2faBtn.disabled = false; tgSubmit2faBtn.textContent = 'ПОДТВЕРДИТЬ'; }
+        }
+    };
+
+    tgSubmit2faBtn?.addEventListener('click', handleSettings2faSubmit);
+    tg2faPasswordInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleSettings2faSubmit();
         }
     });
 
