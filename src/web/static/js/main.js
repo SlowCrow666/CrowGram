@@ -1427,6 +1427,47 @@ function bindModalEvents() {
             if (btn) { btn.disabled = false; btn.textContent = '🚪 ВЫЙТИ ИЗ TELEGRAM'; }
         }
     });
+
+    // Облачная синхронизация Telegram (Pull / Push)
+    document.getElementById('pullSyncBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('pullSyncBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ ЗАГРУЗКА...'; }
+        showTgAuthMsg('Загрузка структуры из Telegram...', 'info');
+        try {
+            const res = await fetch('/api/sync/pull', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                showTgAuthMsg('✓ ' + (data.message || 'Синхронизация успешно выполнена!'), 'success');
+                await loadDrives();
+                await loadFiles();
+            } else {
+                showTgAuthMsg('Ошибка: ' + (data.detail || data.message || 'Ошибка синхронизации'), 'error');
+            }
+        } catch (err) {
+            showTgAuthMsg('Ошибка: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '📥 Скачать из Telegram'; }
+        }
+    });
+
+    document.getElementById('pushSyncBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('pushSyncBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ СОХРАНЕНИЕ...'; }
+        showTgAuthMsg('Сохранение структуры в Saved Messages...', 'info');
+        try {
+            const res = await fetch('/api/sync/push', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                showTgAuthMsg('✓ ' + (data.message || 'Структура успешно сохранена в Telegram!'), 'success');
+            } else {
+                showTgAuthMsg('Ошибка: ' + (data.detail || data.message || 'Ошибка сохранения'), 'error');
+            }
+        } catch (err) {
+            showTgAuthMsg('Ошибка: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '📤 Сохранить принудительно'; }
+        }
+    });
 }
 
 function switchTheme(themeName) {

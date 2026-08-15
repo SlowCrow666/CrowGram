@@ -138,19 +138,21 @@
                     if (!code) return;
 
                     signInBtn.disabled = true;
+                    this.showMsg('wizardStep3Msg', '⏳ Проверка кода...', 'info');
                     try {
                         const fd = new FormData();
                         fd.append('code', code);
                         const res = await fetch('/api/auth/sign-in', { method: 'POST', body: fd });
                         const data = await res.json();
-                        if (res.ok && data.status === 'authorized') {
+                        if (res.ok && (data.status === 'success' || data.status === 'authorized')) {
                             this.onAuthSuccess(data.user);
-                        } else if (data.status === 'password_needed') {
+                        } else if (data.status === 'password_required' || data.status === 'password_needed') {
                             document.getElementById('wizardAuthCodeBox').style.display = 'none';
                             document.getElementById('wizardAuth2faBox').style.display = 'block';
-                            this.showMsg('wizardStep3Msg', window.t('settings.passPrompt'), 'info');
+                            this.showMsg('wizardStep3Msg', '🔐 ' + (window.t('settings.passPrompt') || 'Введите облачный пароль 2FA'), 'info');
+                            setTimeout(() => document.getElementById('wizard2faInput')?.focus(), 100);
                         } else {
-                            this.showMsg('wizardStep3Msg', data.detail || 'Неверный код', 'error');
+                            this.showMsg('wizardStep3Msg', data.detail || 'Неверный код подтверждения', 'error');
                         }
                     } catch (e) {
                         this.showMsg('wizardStep3Msg', e.message, 'error');
@@ -168,12 +170,13 @@
                     if (!password) return;
 
                     submit2faBtn.disabled = true;
+                    this.showMsg('wizardStep3Msg', '⏳ Проверка пароля 2FA...', 'info');
                     try {
                         const fd = new FormData();
                         fd.append('password', password);
                         const res = await fetch('/api/auth/password', { method: 'POST', body: fd });
                         const data = await res.json();
-                        if (res.ok && data.status === 'authorized') {
+                        if (res.ok && (data.status === 'success' || data.status === 'authorized')) {
                             this.onAuthSuccess(data.user);
                         } else {
                             this.showMsg('wizardStep3Msg', data.detail || 'Неверный 2FA пароль', 'error');

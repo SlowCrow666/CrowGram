@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import string
+import logging
 from typing import Optional, List
 from pathlib import Path
 from urllib.parse import quote
@@ -23,6 +24,7 @@ import uvicorn
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pyrogram.errors import SessionPasswordNeeded
 
 import sys
 sys.path.append(str(Path(__file__).resolve().parent))
@@ -35,7 +37,15 @@ from src.core.db import (
     export_db_to_json, import_db_from_json, set_app_password, verify_app_password_db, get_password_recovery_info,
     get_plugin_defaults, set_plugin_default, remove_plugin_defaults_for_plugin
 )
-from src.core.telegram_client import tg_manager
+from src.core.telegram_client import tg_manager, format_tg_error
+
+# Configure Root Logger
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger("CrowGram")
+logger.setLevel(logging.DEBUG)
 
 mimetypes.add_type('video/mp4', '.mp4')
 mimetypes.add_type('video/webm', '.webm')
@@ -399,19 +409,62 @@ async def delete_local_file_or_folder(path: str = Form(...)):
 
 @app.post("/api/sync/push")
 async def api_sync_push():
-    asyncio.create_task(push_sync_background())
-    return {"status": "success"}
+    if not tg_manager.is_authorized():
+        logger.warning("api_sync_push: Telegram client is not authorized")
+        raise HTTPException(status_code=401, detail="Не авторизован в Telegram. Сначала войдите в аккаунт.")
+    try:
+        data = export_db_to_json()
+        await tg_manager.push_sync(data)
+        logger.info("api_sync_push: sync successfully pushed to Telegram")
+        return {"status": "success", "message": "Структура дисков и файлов сохранена в Избранном (Saved Messages)!"}
+    except Exception as e:
+        logger.error(f"api_sync_push failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка сохранения в Telegram: {str(e)}")
 
 @app.post("/api/sync/pull")
 async def api_sync_pull():
-    data = await tg_manager.pull_sync()
-    if data:
-        try:
+    if not tg_manager.is_authorized():
+        logger.warning("api_sync_pull: Telegram client is not authorized")
+        raise HTTPException(status_code=401, detail="Не авторизован в Telegram. Сначала войдите в аккаунт.")
+    try:
+        data = await tg_manager.pull_sync()
+        if data:
             import_db_from_json(data)
-            return {"status": "success", "message": "Синхронизировано"}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Ошибка импорта базы данных: {str(e)}")
-    return {"status": "error", "message": "Файл синхронизации не найден"}
+            logger.info("api_sync_pull: sync successfully imported from Telegram")
+            return {"status": "success", "message": "База данных успешно восстановлена из Telegram!"}
+        else:
+            logger.warning("api_sync_pull: sync file (#crowgram_sync) not found")
+            raise HTTPException(status_code=404, detail="Файл синхронизации (#crowgram_sync) не найден в Избранном Telegram.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"api_sync_pull failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка восстановления базы данных: {str(e)}")
+
+@app.get("/api/backup/export")
+async def api_backup_export():
+    try:
+        json_data = export_db_to_json()
+        return Response(
+            content=json_data,
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=crowgram_backup.json"}
+        )
+    except Exception as e:
+        logger.error(f"api_backup_export error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/backup/import")
+async def api_backup_import(file: UploadFile = File(...)):
+    try:
+        content = await file.read()
+        import_db_from_json(content.decode("utf-8"))
+        asyncio.create_task(push_sync_background())
+        logger.info("api_backup_import: backup restored successfully")
+        return {"status": "success", "message": "База данных успешно восстановлена из резервной копии!"}
+    except Exception as e:
+        logger.error(f"api_backup_import error: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Ошибка импорта: {str(e)}")
 
 @app.get("/")
 async def root(): 
@@ -461,36 +514,66 @@ async def api_set_config(
 @app.post("/api/auth/send-code")
 async def api_send_code(phone: str = Form(...)):
     try:
-        await tg_manager.send_code(phone.strip())
-        return {"status": "code_sent"}
+        res = await tg_manager.send_code(phone.strip())
+        logger.info(f"Auth code sent to phone: {phone.strip()[:6]}***")
+        return res
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        msg = format_tg_error(e)
+        logger.error(f"api_send_code error: {msg} (raw: {e})")
+        raise HTTPException(status_code=400, detail=msg)
 
 @app.post("/api/auth/sign-in")
-async def api_sign_in(code: str = Form(...)):
+async def api_sign_in(code: str = Form(...), phone: Optional[str] = Form(None)):
     try:
-        await tg_manager.sign_in(tg_manager.phone, code.strip())
-        return {"status": "success"}
+        target_phone = phone or tg_manager.phone or get_config("phone")
+        me = await tg_manager.sign_in(target_phone, code.strip())
+        user_info = {
+            "id": me.id,
+            "first_name": me.first_name or "",
+            "last_name": me.last_name or "",
+            "username": me.username or "",
+            "phone": me.phone_number or ""
+        } if me else None
+        logger.info(f"User signed in successfully: {user_info}")
+        return {"status": "success", "user": user_info}
+    except SessionPasswordNeeded:
+        logger.info("SessionPasswordNeeded: 2FA required for user")
+        return {"status": "password_required"}
     except Exception as e:
         if "SESSION_PASSWORD_NEEDED" in str(e) or "PasswordNeeded" in str(type(e)):
             return {"status": "password_required"}
-        raise HTTPException(status_code=400, detail=str(e))
+        msg = format_tg_error(e)
+        logger.error(f"api_sign_in error: {msg} (raw: {e})")
+        raise HTTPException(status_code=400, detail=msg)
 
 @app.post("/api/auth/password")
 async def api_check_password(password: str = Form(...)):
     try:
-        await tg_manager.check_password(password)
-        return {"status": "success"}
+        me = await tg_manager.check_password(password)
+        user_info = {
+            "id": me.id,
+            "first_name": me.first_name or "",
+            "last_name": me.last_name or "",
+            "username": me.username or "",
+            "phone": me.phone_number or ""
+        } if me else None
+        logger.info(f"2FA Password accepted for user: {user_info}")
+        return {"status": "success", "user": user_info}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        msg = format_tg_error(e)
+        logger.error(f"api_check_password error: {msg} (raw: {e})")
+        raise HTTPException(status_code=400, detail=msg)
 
 @app.post("/api/auth/logout")
 async def api_logout():
     try:
         await tg_manager.log_out()
+        logger.info("User logged out from Telegram")
         return {"status": "success"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        msg = format_tg_error(e)
+        logger.error(f"api_logout error: {msg} (raw: {e})")
+        raise HTTPException(status_code=400, detail=msg)
 
 @app.get("/api/drives")
 async def api_get_drives():
