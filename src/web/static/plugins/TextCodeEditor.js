@@ -11,6 +11,9 @@ window.CrowAPI.registerPlugin('TextCodeEditor', {
     },
 
     openEditor: async function(id, name) {
+        // Clean up any lingering dynamic modals
+        document.querySelectorAll('.plugin-dynamic-modal').forEach(m => m.remove());
+
         const previewTitle = document.getElementById('previewTitle');
         const previewContent = document.getElementById('previewContent');
         const previewModal = document.getElementById('previewModal');

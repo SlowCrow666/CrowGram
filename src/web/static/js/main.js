@@ -74,7 +74,11 @@ window.CrowAPI = {
         const uniqueCbs = Array.from(new Set(cbs));
         for (const cb of uniqueCbs) {
             try {
-                if (cb(...args) === true) handled = true;
+                const res = cb(...args);
+                if (res === true) {
+                    handled = true;
+                    break;
+                }
             } catch (e) {
                 console.error(`Error in event listener for "${event}":`, e);
             }
@@ -119,8 +123,12 @@ window.CrowAPI = {
             return bar;
         },
         createModal: function(options = {}) {
+            // Clean up any existing dynamic modal with same ID or previous plugin dynamic modal
+            const oldModals = document.querySelectorAll('.plugin-dynamic-modal');
+            oldModals.forEach(m => m.remove());
+
             const overlay = document.createElement('div');
-            overlay.className = 'modal-overlay';
+            overlay.className = 'modal-overlay plugin-dynamic-modal';
             overlay.id = options.id || ('modal_' + Math.random().toString(36).substr(2, 9));
             overlay.style.display = 'flex';
             overlay.style.zIndex = options.zIndex || '2500';
@@ -538,6 +546,9 @@ function handleItemClick(id, name, ext, isFolder) {
         loadFiles();
         return;
     }
+
+    // Clean up any existing dynamic plugin modals before opening new viewer/editor
+    document.querySelectorAll('.plugin-dynamic-modal').forEach(m => m.remove());
 
     const intercepted = window.CrowAPI.emit('onFileClick', id, name, ext);
     if (!intercepted) {

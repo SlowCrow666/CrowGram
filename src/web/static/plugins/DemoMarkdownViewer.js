@@ -77,6 +77,10 @@
             api.on('onFileClick', (id, name, ext) => {
                 const lower = (ext || '').toLowerCase();
                 if (lower === 'md' || lower === 'markdown') {
+                    // If full TextCodeEditor is present, yield to full editor
+                    if (window.CrowAPI && (window.CrowAPI.plugins['TextCodeEditor'] || window.CrowAPI.plugins['text_editor'])) {
+                        return false;
+                    }
                     this.openViewer(id, name);
                     return true; // Intercept event to prevent default handler
                 }
