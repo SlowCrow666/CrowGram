@@ -179,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function initAppCore() {
-    await loadConfigSettings();
+    await initAppAuth();
     await loadDrives();
     await loadFiles();
     await loadPlugins();
@@ -188,6 +188,13 @@ async function initAppCore() {
         window.CrowAPI.emit('onAppReady');
     }
 }
+
+async function initAppAuth() {
+    return await loadConfigSettings();
+}
+window.initAppAuth = initAppAuth;
+window.loadConfig = loadConfigSettings;
+window.loadConfigSettings = loadConfigSettings;
 
 async function loadConfigSettings() {
     try {
@@ -321,28 +328,81 @@ async function loadFiles() {
     }
 }
 
+function updateSortHeaderIndicators(sortVal) {
+    const indicators = {
+        name: document.getElementById('sortIndicatorName'),
+        size: document.getElementById('sortIndicatorSize'),
+        date: document.getElementById('sortIndicatorDate')
+    };
+    const headers = {
+        name: document.getElementById('thName'),
+        size: document.getElementById('thSize'),
+        date: document.getElementById('thDate')
+    };
+
+    Object.keys(indicators).forEach(key => {
+        if (indicators[key]) indicators[key].textContent = '';
+        if (headers[key]) headers[key].classList.remove('active-sort');
+    });
+
+    if (!sortVal) sortVal = 'date_desc';
+
+    if (sortVal.startsWith('name_')) {
+        if (headers.name) headers.name.classList.add('active-sort');
+        if (indicators.name) indicators.name.textContent = sortVal === 'name_asc' ? '▲' : '▼';
+    } else if (sortVal.startsWith('size_')) {
+        if (headers.size) headers.size.classList.add('active-sort');
+        if (indicators.size) indicators.size.textContent = sortVal === 'size_asc' ? '▲' : '▼';
+    } else if (sortVal.startsWith('date_')) {
+        if (headers.date) headers.date.classList.add('active-sort');
+        if (indicators.date) indicators.date.textContent = sortVal === 'date_asc' ? '▲' : '▼';
+    }
+}
+
+function setSortValue(val) {
+    const sel = document.getElementById('sortSelect');
+    if (sel) sel.value = val;
+    localStorage.setItem('crowgram_sort_val', val);
+    applyFilterAndSort();
+}
+
 function applyFilterAndSort() {
     let items = window.currentFolderFiles || [];
     const query = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
-    const sortVal = document.getElementById('sortSelect')?.value || 'date_desc';
+    const sortVal = document.getElementById('sortSelect')?.value || localStorage.getItem('crowgram_sort_val') || 'date_desc';
 
     if (query) {
         items = items.filter(item => (item.name || '').toLowerCase().includes(query));
     }
 
     items = [...items].sort((a, b) => {
+        // Folders ALWAYS on top
         if (a.is_folder && !b.is_folder) return -1;
         if (!a.is_folder && b.is_folder) return 1;
 
+        // If both are folders
+        if (a.is_folder && b.is_folder) {
+            if (sortVal === 'name_desc') {
+                return (b.name || '').localeCompare(a.name || '', undefined, { numeric: true, sensitivity: 'base' });
+            } else if (sortVal === 'date_asc') {
+                return (new Date(a.created_at || 0)).getTime() - (new Date(b.created_at || 0)).getTime();
+            } else if (sortVal === 'date_desc') {
+                return (new Date(b.created_at || 0)).getTime() - (new Date(a.created_at || 0)).getTime();
+            } else {
+                return (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+            }
+        }
+
+        // Both are files
         switch (sortVal) {
             case 'date_asc':
-                return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+                return (new Date(a.created_at || 0)).getTime() - (new Date(b.created_at || 0)).getTime();
             case 'date_desc':
-                return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+                return (new Date(b.created_at || 0)).getTime() - (new Date(a.created_at || 0)).getTime();
             case 'name_asc':
-                return (a.name || '').localeCompare(b.name || '');
+                return (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
             case 'name_desc':
-                return (b.name || '').localeCompare(a.name || '');
+                return (b.name || '').localeCompare(a.name || '', undefined, { numeric: true, sensitivity: 'base' });
             case 'size_desc':
                 return (b.size || 0) - (a.size || 0);
             case 'size_asc':
@@ -352,6 +412,7 @@ function applyFilterAndSort() {
         }
     });
 
+    updateSortHeaderIndicators(sortVal);
     renderView(items);
 }
 
@@ -720,7 +781,12 @@ function formatProgressInfo(task) {
     let metaRight = 'В очереди';
     let percent = task.progress || 0;
 
-    if (task.status === 'buffering') {
+    if (task.status === 'paused') {
+        statusText = 'Пауза ⏸';
+        statusClass = 'paused';
+        metaLeft = `${formatBytes(task.uploadedBytes || task.loaded || 0)} / ${formatBytes(task.size)}`;
+        metaRight = 'Приостановлено';
+    } else if (task.status === 'buffering') {
         statusText = `Буферизация (${percent}%)`;
         statusClass = 'uploading';
         metaLeft = `${formatBytes(task.loaded || 0)} / ${formatBytes(task.size)}`;
@@ -745,6 +811,12 @@ function formatProgressInfo(task) {
         percent = 100;
         metaLeft = `${formatBytes(task.size)}`;
         metaRight = `✖ ${task.error || 'Ошибка загрузки'}`;
+    } else if (task.status === 'cancelled') {
+        statusText = 'Отменено';
+        statusClass = 'error';
+        percent = 0;
+        metaLeft = `${formatBytes(task.size)}`;
+        metaRight = 'Отменено пользователем';
     }
 
     return { statusText, statusClass, metaLeft, metaRight, percent };
@@ -763,20 +835,47 @@ function renderQueueItem(task) {
     }
 
     const { statusText, statusClass, metaLeft, metaRight, percent } = formatProgressInfo(task);
+    const showPause = task.status !== 'done' && task.status !== 'error' && task.status !== 'cancelled';
+    const pauseIcon = task.status === 'paused' ? '▶' : '⏸';
+    const pauseTitle = task.status === 'paused' ? 'Возобновить' : 'Пауза';
 
     itemEl.innerHTML = `
         <div class="queue-item-header">
             <span class="queue-item-name" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</span>
-            <span class="queue-item-status ${statusClass}">${statusText}</span>
+            <div class="queue-item-actions">
+                <span class="queue-item-status ${statusClass}">${statusText}</span>
+                <button class="queue-action-btn queue-pause-btn" title="${pauseTitle}" style="display: ${showPause ? 'inline-flex' : 'none'};">
+                    ${pauseIcon}
+                </button>
+                <button class="queue-action-btn queue-cancel-btn" title="Отменить / Удалить">
+                    ✕
+                </button>
+            </div>
+        </div>
+        <div class="progress-bar-bg">
+            <div class="progress-bar-fill ${statusClass === 'done' ? 'done' : (statusClass === 'error' ? 'error' : (statusClass === 'paused' ? 'paused' : ''))}" style="width: ${percent}%;"></div>
         </div>
         <div class="queue-item-meta">
             <span class="meta-left">${metaLeft}</span>
             <span class="meta-right">${metaRight}</span>
         </div>
-        <div class="progress-bar-bg">
-            <div class="progress-bar-fill ${statusClass === 'done' ? 'done' : (statusClass === 'error' ? 'error' : '')}" style="width: ${percent}%;"></div>
-        </div>
     `;
+
+    const pauseBtn = itemEl.querySelector('.queue-pause-btn');
+    if (pauseBtn) {
+        pauseBtn.onclick = (e) => {
+            e.stopPropagation();
+            togglePauseUploadTask(task.id);
+        };
+    }
+
+    const cancelBtn = itemEl.querySelector('.queue-cancel-btn');
+    if (cancelBtn) {
+        cancelBtn.onclick = (e) => {
+            e.stopPropagation();
+            cancelUploadTask(task.id);
+        };
+    }
 
     queueBody.scrollTop = queueBody.scrollHeight;
 }
@@ -796,6 +895,14 @@ function updateQueueItemDOM(task) {
         statusBadge.textContent = statusText;
     }
 
+    const pauseBtn = itemEl.querySelector('.queue-pause-btn');
+    if (pauseBtn) {
+        const showPause = task.status !== 'done' && task.status !== 'error' && task.status !== 'cancelled';
+        pauseBtn.style.display = showPause ? 'inline-flex' : 'none';
+        pauseBtn.textContent = task.status === 'paused' ? '▶' : '⏸';
+        pauseBtn.title = task.status === 'paused' ? 'Возобновить' : 'Пауза';
+    }
+
     const leftSpan = itemEl.querySelector('.meta-left');
     if (leftSpan) leftSpan.textContent = metaLeft;
 
@@ -805,8 +912,65 @@ function updateQueueItemDOM(task) {
     const fillBar = itemEl.querySelector('.progress-bar-fill');
     if (fillBar) {
         fillBar.style.width = `${percent}%`;
-        fillBar.className = `progress-bar-fill ${statusClass === 'done' ? 'done' : (statusClass === 'error' ? 'error' : '')}`;
+        fillBar.className = `progress-bar-fill ${statusClass === 'done' ? 'done' : (statusClass === 'error' ? 'error' : (statusClass === 'paused' ? 'paused' : ''))}`;
     }
+}
+
+function togglePauseUploadTask(taskId) {
+    const task = uploadQueue.find(t => t.id === taskId);
+    if (!task) return;
+
+    if (task.status === 'paused') {
+        if (task.serverTaskId) {
+            fetch(`/api/upload/resume/${task.serverTaskId}`, { method: 'POST' }).catch(() => {});
+            task.status = 'uploading_to_tg';
+        } else {
+            task.status = 'queued';
+        }
+        updateQueueItemDOM(task);
+        processUploadQueue();
+    } else if (task.status === 'uploading_to_tg' || task.status === 'processing') {
+        task.status = 'paused';
+        if (task.serverTaskId) {
+            fetch(`/api/upload/pause/${task.serverTaskId}`, { method: 'POST' }).catch(() => {});
+        }
+        updateQueueItemDOM(task);
+        processUploadQueue();
+    } else if (task.status === 'queued' || task.status === 'buffering') {
+        task.status = 'paused';
+        updateQueueItemDOM(task);
+    }
+}
+
+function cancelUploadTask(taskId) {
+    const taskIndex = uploadQueue.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) return;
+    const task = uploadQueue[taskIndex];
+
+    if (task.xhr) {
+        try { task.xhr.abort(); } catch (e) {}
+        task.xhr = null;
+    }
+    if (task.pollTimer) {
+        clearInterval(task.pollTimer);
+        task.pollTimer = null;
+    }
+    if (task.serverTaskId) {
+        fetch(`/api/upload/cancel/${task.serverTaskId}`, { method: 'POST' }).catch(() => {});
+    }
+
+    const itemEl = document.getElementById('task_' + task.id);
+    if (itemEl) itemEl.remove();
+
+    uploadQueue.splice(taskIndex, 1);
+    updateQueueHeader();
+
+    if (uploadQueue.length === 0) {
+        const widget = document.getElementById('queueWidget');
+        if (widget) widget.style.display = 'none';
+    }
+
+    processUploadQueue();
 }
 
 function processUploadQueue() {
@@ -856,6 +1020,8 @@ function startUploadTask(task) {
     };
 
     xhr.onload = () => {
+        if (task.status === 'cancelled') return;
+
         if (xhr.status >= 200 && xhr.status < 300) {
             try {
                 const res = JSON.parse(xhr.responseText);
@@ -864,7 +1030,7 @@ function startUploadTask(task) {
                     task.totalChunks = res.total_chunks || 1;
                     task.currentChunk = 1;
                     task.completedChunks = 0;
-                    task.status = 'uploading_to_tg';
+                    task.status = task.status === 'paused' ? 'paused' : 'uploading_to_tg';
                     task.progress = 0;
                     task.speedText = '';
                     updateQueueItemDOM(task);
@@ -872,9 +1038,16 @@ function startUploadTask(task) {
                     // Start live polling of Telegram chunk uploads
                     task.pollTimer = setInterval(async () => {
                         try {
+                            if (task.status === 'cancelled') return;
                             const pollRes = await fetch(`/api/upload/status/${task.serverTaskId}`);
                             if (!pollRes.ok) return;
                             const data = await pollRes.json();
+
+                            if (data.status === 'paused' && task.status !== 'paused') {
+                                task.status = 'paused';
+                                updateQueueItemDOM(task);
+                                return;
+                            }
 
                             task.totalChunks = data.total_chunks || task.totalChunks || 1;
                             task.currentChunk = data.current_chunk || 1;
@@ -900,12 +1073,12 @@ function startUploadTask(task) {
                                     clearInterval(task.pollTimer);
                                     task.pollTimer = null;
                                 }
-                                task.status = 'error';
-                                task.error = data.error || 'Ошибка загрузки в Telegram';
+                                task.status = data.status === 'cancelled' ? 'cancelled' : 'error';
+                                task.error = data.error || (data.status === 'cancelled' ? 'Отменено' : 'Ошибка загрузки в Telegram');
                                 updateQueueItemDOM(task);
                                 updateQueueHeader();
                                 processUploadQueue();
-                            } else {
+                            } else if (task.status !== 'paused') {
                                 task.status = 'uploading_to_tg';
                                 updateQueueItemDOM(task);
                             }
@@ -943,6 +1116,7 @@ function startUploadTask(task) {
     };
 
     xhr.onerror = () => {
+        if (task.status === 'cancelled') return;
         task.status = 'error';
         task.error = 'Ошибка сети';
         updateQueueItemDOM(task);
@@ -1028,12 +1202,39 @@ function bindToolbarEvents() {
         }
     });
 
+    // Restore saved sort setting
+    const savedSort = localStorage.getItem('crowgram_sort_val');
+    const sortSelect = document.getElementById('sortSelect');
+    if (savedSort && sortSelect) {
+        sortSelect.value = savedSort;
+    }
+
     document.getElementById('searchInput')?.addEventListener('input', () => {
         applyFilterAndSort();
     });
 
-    document.getElementById('sortSelect')?.addEventListener('change', () => {
+    document.getElementById('sortSelect')?.addEventListener('change', (e) => {
+        localStorage.setItem('crowgram_sort_val', e.target.value);
         applyFilterAndSort();
+    });
+
+    // Interactive Table Header Clicks
+    document.getElementById('thName')?.addEventListener('click', () => {
+        const cur = document.getElementById('sortSelect')?.value || 'date_desc';
+        const next = cur === 'name_asc' ? 'name_desc' : 'name_asc';
+        setSortValue(next);
+    });
+
+    document.getElementById('thSize')?.addEventListener('click', () => {
+        const cur = document.getElementById('sortSelect')?.value || 'date_desc';
+        const next = cur === 'size_desc' ? 'size_asc' : 'size_desc';
+        setSortValue(next);
+    });
+
+    document.getElementById('thDate')?.addEventListener('click', () => {
+        const cur = document.getElementById('sortSelect')?.value || 'date_desc';
+        const next = cur === 'date_desc' ? 'date_asc' : 'date_desc';
+        setSortValue(next);
     });
 
     document.getElementById('viewSwitcher')?.addEventListener('change', (e) => {
@@ -1565,11 +1766,39 @@ function bindGlobalEvents() {
     switchTheme(savedTheme);
 
     document.getElementById('navDriveBtn')?.addEventListener('click', (e) => {
-        e.preventDefault(); isTrashView = false; currentFolderId = 0; loadFiles();
+        e.preventDefault(); isTrashView = false; currentFolderId = 0; 
+        safeToggleModal('musicModal', 'none');
+        loadFiles();
+    });
+
+    document.getElementById('navMusicBtn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (window.CrowMusicInstance) {
+            window.CrowMusicInstance.open();
+        } else {
+            const modal = document.getElementById('musicModal');
+            if (modal) modal.style.display = 'flex';
+        }
+    });
+
+    document.getElementById('closeMusicBtn')?.addEventListener('click', () => {
+        if (window.CrowMusicInstance) {
+            window.CrowMusicInstance.close();
+        } else {
+            const modal = document.getElementById('musicModal');
+            if (modal) modal.style.display = 'none';
+        }
+    });
+
+    document.getElementById('musicRefreshBtn')?.addEventListener('click', () => {
+        const frame = document.getElementById('musicIframe');
+        if (frame) frame.src = frame.src;
     });
 
     document.getElementById('navTrashBtn')?.addEventListener('click', (e) => {
-        e.preventDefault(); isTrashView = true; loadFiles();
+        e.preventDefault(); isTrashView = true;
+        safeToggleModal('musicModal', 'none');
+        loadFiles();
     });
 
     document.getElementById('sidebarToggle')?.addEventListener('click', () => {

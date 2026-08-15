@@ -15,20 +15,28 @@
             this.phoneCodeHash = null;
         }
 
-        init() {
+        async init() {
             this.modalEl = document.getElementById('setupWizardModal');
             if (!this.modalEl) return;
 
             this.bindEvents();
             
-            // Check if wizard should automatically open
-            const completed = localStorage.getItem('crowgram_wizard_completed');
-            if (!completed) {
-                setTimeout(() => {
-                    if (window.isAuthorized === false) {
+            // Check backend Single Source of Truth for setup configuration
+            try {
+                const res = await fetch('/api/system/status');
+                if (res.ok) {
+                    const status = await res.json();
+                    if (status.setup_completed === true || status.is_first_run === false) {
+                        localStorage.setItem('crowgram_wizard_completed', 'true');
+                        this.close();
+                        return;
+                    } else {
+                        // Only open wizard if backend explicitly reports setup is not completed
                         this.open();
                     }
-                }, 400);
+                }
+            } catch (e) {
+                console.error('Failed to check system setup status:', e);
             }
         }
 
@@ -474,7 +482,10 @@
             if (this.modalEl) this.modalEl.style.display = 'none';
         }
 
-        finish() {
+        async finish() {
+            try {
+                await fetch('/api/setup/complete', { method: 'POST' });
+            } catch (e) {}
             localStorage.setItem('crowgram_wizard_completed', 'true');
             this.close();
             if (window.loadConfig) window.loadConfig();

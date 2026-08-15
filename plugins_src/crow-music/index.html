@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CrowMusic Hub — Медиаплеер CrowGram</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+
+  <!-- Верхняя панель управления -->
+  <header class="header-bar">
+    <div class="brand-section">
+      <img src="icon.svg" class="brand-logo" alt="CrowMusic" />
+      <span class="brand-title">CrowMusic Hub</span>
+    </div>
+
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="searchInput" class="search-input" placeholder="Поиск альбомов, треков, артистов..." />
+    </div>
+
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="albums">Альбомы</button>
+      <button class="tab-btn" data-tab="artists">Артисты</button>
+      <button class="tab-btn" data-tab="tracks">Все треки</button>
+    </nav>
+
+    <div class="actions-section">
+      <span id="statsBadge" class="stats-badge">Загрузка...</span>
+      <button id="rescanBtn" class="btn-scan">
+        <span class="spin-icon">🔄</span> Сканировать диски
+      </button>
+    </div>
+  </header>
+
+  <!-- Основное рабочее пространство -->
+  <main class="main-content">
+    <!-- Вкладка: Альбомы -->
+    <section id="viewAlbums" class="view-section active">
+      <div class="section-header">
+        <h2 class="section-title">Коллекция альбомов</h2>
+      </div>
+      <div id="albumsGrid" class="albums-grid"></div>
+    </section>
+
+    <!-- Вкладка: Артисты -->
+    <section id="viewArtists" class="view-section">
+      <div class="section-header">
+        <h2 class="section-title">Исполнители и дискографии</h2>
+      </div>
+      <div id="artistsGrid" class="artists-grid"></div>
+    </section>
+
+    <!-- Вкладка: Все треки -->
+    <section id="viewTracks" class="view-section">
+      <div class="section-header">
+        <h2 class="section-title">Аудиотека</h2>
+      </div>
+      <div class="tracks-table-container">
+        <table class="tracks-table">
+          <thead>
+            <tr>
+              <th style="width: 40px;">▶</th>
+              <th>Название</th>
+              <th>Исполнитель</th>
+              <th>Альбом</th>
+              <th>Формат</th>
+              <th>Размер</th>
+            </tr>
+          </thead>
+          <tbody id="tracksTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Вкладка: Просмотр альбома -->
+    <section id="viewAlbumDetail" class="view-section">
+      <div id="albumDetailContent"></div>
+    </section>
+  </main>
+
+  <!-- Прикрепленный плеер (Sticky Player) -->
+  <footer id="playerBar" class="music-player-bar">
+    <div class="player-left">
+      <img id="playerCover" src="icon.svg" class="player-cover" alt="Cover" />
+      <div class="player-track-info">
+        <div id="playerTitle" class="player-track-title">Выберите трек для воспроизведения</div>
+        <div id="playerArtist" class="player-track-artist">CrowMusic Player</div>
+      </div>
+      <span id="playerFormat" class="format-badge" style="margin-left: 4px;">IDLE</span>
+    </div>
+
+    <div class="player-center">
+      <div class="player-controls">
+        <button id="playerShuffleBtn" class="player-btn" title="Случайный порядок (Shuffle)">🔀</button>
+        <button id="playerPrevBtn" class="player-btn" title="Предыдущий трек (Prev)">⏮</button>
+        <button id="playerPlayBtn" class="player-btn player-btn-play" title="Воспроизведение / Пауза (Space)">▶</button>
+        <button id="playerNextBtn" class="player-btn" title="Следующий трек (Next)">⏭</button>
+        <button id="playerRepeatBtn" class="player-btn" title="Режим повтора">🔁</button>
+      </div>
+
+      <div class="player-progress-row">
+        <span id="playerCurrentTime">0:00</span>
+        <input type="range" id="playerSeekBar" class="player-seek-bar" min="0" max="100" value="0" step="0.1" />
+        <span id="playerTotalTime">0:00</span>
+      </div>
+    </div>
+
+    <div class="player-right">
+      <button id="playerVolumeBtn" class="player-btn" title="Вкл / Выкл звук (M)">🔊</button>
+      <input type="range" id="playerVolumeSlider" class="volume-slider" min="0" max="100" value="85" />
+    </div>
+  </footer>
+
+  <script src="static/app.js"></script>
+</body>
+</html>

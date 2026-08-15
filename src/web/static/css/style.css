@@ -637,6 +637,25 @@ a:hover {
     border-bottom: 1px solid var(--border-subtle);
     user-select: none;
 }
+.data-table th.sortable-th {
+    cursor: pointer;
+    transition: color var(--duration-fast) ease, background var(--duration-fast) ease;
+    white-space: nowrap;
+}
+.data-table th.sortable-th:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.04);
+}
+.data-table th.sortable-th.active-sort {
+    color: var(--accent-blue, #38bdf8);
+}
+.sort-indicator {
+    display: inline-block;
+    margin-left: 5px;
+    font-size: 10px;
+    color: var(--accent-blue, #38bdf8);
+    vertical-align: middle;
+}
 .data-table td {
     padding: 8px 12px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
@@ -1051,32 +1070,52 @@ a:hover {
     padding: 8px 10px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+.queue-item:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: #0d1017;
 }
 .queue-item-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
 }
 .queue-item-name {
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
 }
+.queue-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
 .queue-item-status {
     font-size: 10px;
     font-weight: 600;
-    padding: 1px 5px;
+    padding: 2px 6px;
     border-radius: var(--radius-badge);
+    white-space: nowrap;
+}
+.queue-item-status.queued {
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.05);
 }
 .queue-item-status.uploading {
     color: var(--accent-blue);
     background: var(--accent-blue-subtle);
+}
+.queue-item-status.paused {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.15);
 }
 .queue-item-status.done {
     color: var(--accent-green);
@@ -1086,8 +1125,40 @@ a:hover {
     color: var(--accent-red);
     background: var(--accent-red-subtle);
 }
-.progress-bar-bg {
+.queue-action-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
     background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+    line-height: 1;
+    user-select: none;
+}
+.queue-action-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+.queue-action-btn.queue-pause-btn:hover {
+    color: #38bdf8;
+    border-color: #38bdf8;
+    background: rgba(56, 189, 248, 0.15);
+}
+.queue-action-btn.queue-cancel-btn:hover {
+    color: var(--accent-red);
+    border-color: var(--accent-red);
+    background: rgba(239, 68, 68, 0.15);
+}
+.progress-bar-bg {
+    background: rgba(255, 255, 255, 0.08);
     height: 4px;
     border-radius: 2px;
     overflow: hidden;
@@ -1102,6 +1173,29 @@ a:hover {
 }
 .progress-bar-fill.done { background: var(--accent-green); }
 .progress-bar-fill.error { background: var(--accent-red); }
+.progress-bar-fill.paused { background: #f59e0b; }
+.queue-item-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.2;
+}
+.queue-item-meta .meta-left {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 60%;
+}
+.queue-item-meta .meta-right {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+    max-width: 40%;
+}
 
 /* ==========================================================================
    SETUP WIZARD MODAL STYLES

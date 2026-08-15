@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="musicGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#818cf8" />
+      <stop offset="100%" stop-color="#c084fc" />
+    </linearGradient>
+    <linearGradient id="discGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <!-- Background rounded plate -->
+  <rect width="64" height="64" rx="16" fill="url(#discGrad)" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" />
+  
+  <!-- Vinyl disc outer circle -->
+  <circle cx="32" cy="32" r="23" fill="none" stroke="rgba(56, 189, 248, 0.2)" stroke-width="1.5" stroke-dasharray="4 2" />
+  <circle cx="32" cy="32" r="17" fill="none" stroke="rgba(192, 132, 252, 0.15)" stroke-width="1" />
+  
+  <!-- Vinyl Center -->
+  <circle cx="32" cy="32" r="8" fill="#0f172a" stroke="url(#musicGrad)" stroke-width="2" />
+  <circle cx="32" cy="32" r="2.5" fill="#38bdf8" />
+
+  <!-- Music Notes / Beams -->
+  <path d="M26 38 L26 21 C26 19 28 17 30 17 L41 15 C43 14.5 45 16 45 18 L45 35" fill="none" stroke="url(#musicGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)" />
+  <path d="M26 23 L45 20" stroke="url(#musicGrad)" stroke-width="2.5" stroke-linecap="round" />
+  
+  <!-- Note Heads -->
+  <ellipse cx="23" cy="38" rx="4" ry="3" transform="rotate(-20 23 38)" fill="url(#musicGrad)" />
+  <ellipse cx="42" cy="35" rx="4" ry="3" transform="rotate(-20 42 35)" fill="url(#musicGrad)" />
+</svg>

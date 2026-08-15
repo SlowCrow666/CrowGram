@@ -37,6 +37,7 @@
             },
             sidebar: {
                 overview: 'Оглавление',
+                music: 'CrowMusic',
                 trash: 'Корзина',
                 commander: 'CrowCommander',
                 drives: 'ДИСКИ',
@@ -54,6 +55,7 @@
                 title: 'CROWGRAM CLOUD',
                 statusReady: '🟢 СИСТЕМА ГОТОВА ({user})',
                 statusUnauth: '🔴 ТРЕБУЕТСЯ АВТОРИЗАЦИЯ',
+                statusChecking: '🔄 ПРОВЕРКА СВЯЗИ...',
                 themeDefault: '🎨 Linear Dark',
                 themeGemini: '✨ Google Gemini',
                 themeYandexDisk: '🟡 Яндекс Диск',
@@ -269,6 +271,7 @@
             },
             sidebar: {
                 overview: 'Overview',
+                music: 'CrowMusic',
                 trash: 'Trash',
                 commander: 'CrowCommander',
                 drives: 'DRIVES',
@@ -286,6 +289,7 @@
                 title: 'CROWGRAM CLOUD',
                 statusReady: '🟢 SYSTEM READY ({user})',
                 statusUnauth: '🔴 AUTHORIZATION REQUIRED',
+                statusChecking: '🔄 CHECKING CONNECTION...',
                 themeDefault: '🎨 Linear Dark',
                 themeGemini: '✨ Google Gemini',
                 themeYandexDisk: '🟡 Yandex Disk',

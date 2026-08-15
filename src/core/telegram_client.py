@@ -53,80 +53,143 @@ class TelegramManager:
         self._chat_cache = {}
         self._upload_semaphore = asyncio.Semaphore(3)
         self._auth_lock = asyncio.Lock()
+        self._init_done_event = asyncio.Event()
+        self._initialized = False
+
+    async def wait_until_ready(self, timeout: float = 6.0):
+        if self._initialized:
+            return
+        try:
+            await asyncio.wait_for(self._init_done_event.wait(), timeout=timeout)
+        except (asyncio.TimeoutError, Exception):
+            pass
 
     async def init_client(self, force: bool = False):
+        if not force and self._initialized and self.app and self.app.is_connected:
+            return
+
         async with self._auth_lock:
-            from src.core.db import get_all_config
-            cfg = get_all_config()
-            self.api_id = cfg.get("api_id")
-            self.api_hash = cfg.get("api_hash")
-            
-            if not self.api_id or not self.api_hash:
-                logger.debug("init_client: API ID or API Hash not set in database")
-                return
-
             try:
-                clean_id = int(str(self.api_id).strip().replace('"', '').replace("'", ""))
-                clean_hash = str(self.api_hash).strip().replace('"', '').replace("'", "")
-            except ValueError:
-                logger.error(f"Invalid API ID format: {self.api_id}")
-                return
-            
-            if not force and self.app and self.app.is_connected and getattr(self, "_current_id", None) == clean_id:
-                if not getattr(self.app, "me", None):
-                    try: 
-                        self.app.me = await self.app.get_me()
-                    except Exception: 
-                        pass
-                return
+                from src.core.db import get_all_config
+                cfg = get_all_config()
+                self.api_id = cfg.get("api_id")
+                self.api_hash = cfg.get("api_hash")
+                
+                if not self.api_id or not self.api_hash:
+                    logger.debug("init_client: API ID or API Hash not set in database")
+                    return
 
-            if self.app:
                 try:
-                    if self.app.is_connected:
-                        await self.app.disconnect()
-                except Exception as e:
-                    logger.debug(f"Disconnect error on cleanup: {e}")
-                self.app = None
+                    clean_id = int(str(self.api_id).strip().replace('"', '').replace("'", ""))
+                    clean_hash = str(self.api_hash).strip().replace('"', '').replace("'", "")
+                except ValueError:
+                    logger.error(f"Invalid API ID format: {self.api_id}")
+                    return
+                
+                if not force and self.app and self.app.is_connected and getattr(self, "_current_id", None) == clean_id:
+                    if not getattr(self.app, "me", None):
+                        try: 
+                            self.app.me = await self.app.get_me()
+                        except Exception: 
+                            pass
+                    return
 
-            # Clean up stale temp or journal files
-            for stale_f in BASE_DIR.glob("*temp*.session*"):
-                try: stale_f.unlink()
-                except Exception: pass
-            for stale_f in BASE_DIR.glob("*.session-journal"):
-                try: stale_f.unlink()
-                except Exception: pass
+                if self.app:
+                    try:
+                        if self.app.is_connected:
+                            await self.app.disconnect()
+                    except Exception as e:
+                        logger.debug(f"Disconnect error on cleanup: {e}")
+                    self.app = None
 
-            logger.info(f"Initializing Pyrogram client with api_id={clean_id} (Telegram Desktop 5.4.1 x64 emulation)")
-            self.app = Client(
-                name=self.session_name,
-                api_id=clean_id,
-                api_hash=clean_hash,
-                device_model="Desktop",
-                app_version="5.4.1 x64",
-                system_version="Windows 10",
-                lang_code="ru",
-                workdir=str(BASE_DIR)
-            )
-            self._current_id = clean_id
+                # Clean up stale temp or journal files
+                for stale_f in BASE_DIR.glob("*temp*.session*"):
+                    try: stale_f.unlink()
+                    except Exception: pass
+                for stale_f in BASE_DIR.glob("*.session-journal"):
+                    try: stale_f.unlink()
+                    except Exception: pass
 
-            for attempt in range(5):
-                try:
-                    if not self.app.is_connected:
-                        await self.app.connect()
-                    self.app.me = await self.app.get_me()
-                    logger.info(f"Telegram connected as: {self.app.me.first_name} (@{self.app.me.username})")
-                    break
-                except (sqlite3.OperationalError, Exception) as e:
-                    if "locked" in str(e).lower() and attempt < 4:
-                        await asyncio.sleep(0.5 * (attempt + 1))
-                        continue
-                    if not getattr(self.app, "is_connected", False):
-                        logger.warning(f"init_client connection notice: {e}")
-                    self.app.me = None
-                    break
+                logger.info(f"Initializing Pyrogram client with api_id={clean_id} (Telegram Desktop 5.4.1 x64 emulation)")
+                self.app = Client(
+                    name=self.session_name,
+                    api_id=clean_id,
+                    api_hash=clean_hash,
+                    device_model="Desktop",
+                    app_version="5.4.1 x64",
+                    system_version="Windows 10",
+                    lang_code="ru",
+                    workdir=str(BASE_DIR)
+                )
+                self._current_id = clean_id
+
+                for attempt in range(4):
+                    try:
+                        if not self.app.is_connected:
+                            await self.app.connect()
+                        self.app.me = await asyncio.wait_for(self.app.get_me(), timeout=3.5)
+                        logger.info(f"Telegram connected as: {self.app.me.first_name} (@{self.app.me.username})")
+                        break
+                    except (sqlite3.OperationalError, Exception) as e:
+                        if "locked" in str(e).lower() and attempt < 3:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                            continue
+                        logger.info(f"init_client Telegram status: {e}")
+                        self.app.me = None
+                        if getattr(self.app, "is_connected", False):
+                            try:
+                                await self.app.disconnect()
+                            except Exception:
+                                pass
+                        break
+            finally:
+                self._initialized = True
+                self._init_done_event.set()
+
+    def get_cached_session_user(self):
+        session_file = BASE_DIR / f"{self.session_name}.session"
+        if not session_file.exists():
+            return None
+        try:
+            conn = sqlite3.connect(f"file:{session_file}?mode=ro", uri=True, timeout=0.5)
+            c = conn.cursor()
+            c.execute("SELECT user_id, is_bot FROM sessions LIMIT 1")
+            row = c.fetchone()
+            if not row or not row[0] or row[0] == 0:
+                conn.close()
+                return None
+            user_id = row[0]
+            c.execute("SELECT id, username, phone_number FROM peers WHERE id = ?", (user_id,))
+            peer_row = c.fetchone()
+            conn.close()
+            uname = peer_row[1] if peer_row and peer_row[1] else ""
+            phone = peer_row[2] if peer_row and peer_row[2] else ""
+            return {
+                "id": user_id,
+                "username": uname,
+                "phone": phone,
+                "first_name": uname or "Telegram User",
+                "last_name": ""
+            }
+        except Exception:
+            return None
 
     def is_authorized(self):
-        return bool(self.app and self.app.is_connected and getattr(self.app, "me", None) is not None)
+        if self.app and getattr(self.app, "is_connected", False) and getattr(self.app, "me", None) is not None:
+            return True
+        return self.get_cached_session_user() is not None
+
+    def get_user_info(self):
+        if self.app and getattr(self.app, "is_connected", False) and getattr(self.app, "me", None) is not None:
+            me = self.app.me
+            return {
+                "id": me.id,
+                "first_name": me.first_name or "",
+                "last_name": me.last_name or "",
+                "username": me.username or "",
+                "phone": me.phone_number or ""
+            }
+        return self.get_cached_session_user()
 
     async def send_code(self, phone: str):
         await self.init_client()
@@ -329,6 +392,10 @@ class TelegramManager:
     async def push_sync(self, json_data: str):
         if not self.is_authorized(): 
             raise Exception("Сессия Telegram не авторизована для синхронизации")
+        if not self.app or not getattr(self.app, "is_connected", False):
+            await self.init_client()
+        if not self.app or not getattr(self.app, "is_connected", False):
+            raise Exception("Клиент Telegram не подключен")
         
         file_path = BASE_DIR / "crowgram_sync.json"
         with open(file_path, "w", encoding="utf-8") as f:
@@ -358,6 +425,10 @@ class TelegramManager:
     async def pull_sync(self):
         if not self.is_authorized(): 
             raise Exception("Сессия Telegram не авторизована для синхронизации")
+        if not self.app or not getattr(self.app, "is_connected", False):
+            await self.init_client()
+        if not self.app or not getattr(self.app, "is_connected", False):
+            raise Exception("Клиент Telegram не подключен")
             
         logger.info("Searching for #crowgram_sync in Saved Messages...")
         try:

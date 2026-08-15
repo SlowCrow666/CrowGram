@@ -220,6 +220,19 @@ app.mount("/locales", StaticFiles(directory=str(LOCALES_DIR)), name="locales")
 app.mount("/plugins", StaticFiles(directory=str(PLUGINS_DIR)), name="plugins")
 app.mount("/themes", StaticFiles(directory=str(THEMES_DIR)), name="themes")
 
+# Dynamic Plugin Mounts (CrowMusic Hub)
+CROW_MUSIC_DIR = BASE_DIR / "plugins_src" / "crow-music"
+if CROW_MUSIC_DIR.exists():
+    app.mount("/plugins/crow-music", StaticFiles(directory=str(CROW_MUSIC_DIR)), name="crow_music_static")
+    try:
+        if str(CROW_MUSIC_DIR) not in sys.path:
+            sys.path.insert(0, str(CROW_MUSIC_DIR))
+        import backend as crow_music_backend
+        app.include_router(crow_music_backend.router)
+        logger.info("✓ Mounted CrowMusic Hub plugin router at /api/plugins/crow-music")
+    except Exception as e:
+        logger.warning(f"Could not load CrowMusic backend router: {e}")
+
 upload_tasks = {}
 
 async def push_sync_background():
@@ -491,22 +504,64 @@ async def get_plugins():
     plugins = [f.name for f in PLUGINS_DIR.glob("*.js")]
     return JSONResponse(content=plugins)
 
+def check_setup_completed() -> bool:
+    cfg = get_all_config()
+    setup_val = cfg.get("setup_completed")
+    if setup_val in ["1", "true", "True", True]:
+        return True
+    
+    # Auto-detection: if drives exist or TG client is authorized or API keys are configured
+    drives = get_drives()
+    is_auth = tg_manager.is_authorized()
+    has_api_keys = bool(cfg.get("api_id") and cfg.get("api_hash"))
+    
+    if len(drives) > 0 or is_auth or has_api_keys:
+        set_config("setup_completed", "1")
+        set_config("first_run", "0")
+        return True
+        
+    return False
+
+@app.get("/api/auth/status")
+@app.get("/api/system/status")
+async def api_system_status():
+    cfg = get_all_config()
+    is_auth = tg_manager.is_authorized()
+    drives = get_drives()
+    has_api_keys = bool(cfg.get("api_id") and cfg.get("api_hash"))
+    setup_completed = check_setup_completed()
+    tg_user = tg_manager.get_user_info() if is_auth else None
+        
+    return JSONResponse(content={
+        "status": "ready" if is_auth else "unauthorized",
+        "authenticated": is_auth,
+        "is_authorized": is_auth,
+        "setup_completed": setup_completed,
+        "is_first_run": not setup_completed,
+        "drives_count": len(drives),
+        "has_api_keys": has_api_keys,
+        "tg_user": tg_user
+    })
+
+@app.post("/api/setup/complete")
+async def api_setup_complete():
+    set_config("setup_completed", "1")
+    set_config("first_run", "0")
+    return JSONResponse(content={
+        "status": "ok",
+        "setup_completed": True,
+        "is_first_run": False
+    })
+
 @app.get("/api/config")
 async def api_get_config():
     cfg = get_all_config()
     is_auth = tg_manager.is_authorized()
     cfg["is_authorized"] = is_auth
-    if is_auth and getattr(tg_manager.app, "me", None):
-        me = tg_manager.app.me
-        cfg["tg_user"] = {
-            "id": me.id,
-            "first_name": me.first_name or "",
-            "last_name": me.last_name or "",
-            "username": me.username or "",
-            "phone": me.phone_number or ""
-        }
-    else:
-        cfg["tg_user"] = None
+    setup_completed = check_setup_completed()
+    cfg["setup_completed"] = setup_completed
+    cfg["is_first_run"] = not setup_completed
+    cfg["tg_user"] = tg_manager.get_user_info() if is_auth else None
     return JSONResponse(content=cfg)
 
 @app.post("/api/config")
@@ -709,6 +764,30 @@ async def get_upload_task_status(task_id: str):
         raise HTTPException(status_code=404, detail="Задача не найдена")
     return JSONResponse(content=upload_tasks[task_id])
 
+@app.post("/api/upload/cancel/{task_id}")
+async def cancel_upload_task(task_id: str):
+    if task_id in upload_tasks:
+        upload_tasks[task_id]["is_cancelled"] = True
+        upload_tasks[task_id]["status"] = "cancelled"
+        return {"status": "ok", "message": "Загрузка отменена"}
+    return {"status": "ok"}
+
+@app.post("/api/upload/pause/{task_id}")
+async def pause_upload_task(task_id: str):
+    if task_id in upload_tasks:
+        upload_tasks[task_id]["is_paused"] = True
+        upload_tasks[task_id]["status"] = "paused"
+        return {"status": "ok", "message": "Загрузка приостановлена"}
+    return {"status": "ok"}
+
+@app.post("/api/upload/resume/{task_id}")
+async def resume_upload_task(task_id: str):
+    if task_id in upload_tasks:
+        upload_tasks[task_id]["is_paused"] = False
+        upload_tasks[task_id]["status"] = "uploading_to_tg"
+        return {"status": "ok", "message": "Загрузка возобновлена"}
+    return {"status": "ok"}
+
 @app.post("/api/upload")
 async def upload_file(
     file: UploadFile = File(...), 
@@ -766,6 +845,14 @@ async def upload_file(
             with open(temp_path, "rb") as f:
                 chunk_index = 0
                 while True:
+                    if task.get("is_cancelled"):
+                        task["status"] = "cancelled"
+                        return
+                    
+                    while task.get("is_paused") and not task.get("is_cancelled"):
+                        task["status"] = "paused"
+                        await asyncio.sleep(0.4)
+
                     if task.get("is_cancelled"):
                         task["status"] = "cancelled"
                         return

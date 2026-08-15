@@ -1,0 +1,16 @@
+{
+  "id": "crow-music",
+  "name": "CrowMusic Hub",
+  "version": "1.0.0",
+  "author": "SlowCrow",
+  "description": "Персональный стриминговый медиахаб: автономное сканирование дисков, извлечение обложек ID3/FLAC, сетка альбомов, дискографии и встроенный плеер.",
+  "entrypoint": "backend.py",
+  "ui_entry": "index.html",
+  "icon": "icon.svg",
+  "permissions": [
+    "read_drive",
+    "stream_audio",
+    "cache_write"
+  ],
+  "routes_prefix": "/api/plugins/crow-music"
+}
