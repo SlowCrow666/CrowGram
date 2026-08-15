@@ -210,10 +210,9 @@ app = FastAPI(title="CrowGram Cloud Storage", lifespan=lifespan)
 @app.middleware("http")
 async def add_no_cache_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path == "/" or request.url.path.startswith("/static/"):
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return response
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
@@ -478,7 +477,12 @@ async def api_backup_import(file: UploadFile = File(...)):
 
 @app.get("/")
 async def root(): 
-    return FileResponse(WEB_DIR / "index.html")
+    headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+    return FileResponse(WEB_DIR / "index.html", headers=headers)
 
 @app.get("/api/plugins")
 async def get_plugins():

@@ -40,8 +40,12 @@ def main():
         text_select=True
     )
     
-    # Запускаем графическое окно (блокирующий вызов)
-    webview.start(private_mode=False)
+    # Запускаем графическое окно с полным сбросом кэша и изоляцией сессии
+    webview.start(
+        private_mode=True,
+        storage_path=None,
+        debug=False
+    )
 
 if __name__ == "__main__":
     main()
